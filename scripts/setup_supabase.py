@@ -10,8 +10,14 @@ pipeline. Steps:
      SQL by hand.
   2. Storage: create the public bucket SUPABASE_BUCKET if needed, then upload
      every app/static/golden_path/*.png to golden_path/<file> (upsert).
-  3. JSON: rewrite local/bucket image URLs in app/data/*.json to the public
-     Supabase URLs, validate against SkyPatchResponse, write back (indent=2).
+  3. JSON (only with --rewrite-json): rewrite image paths in app/data/*.json
+     to the public Supabase URLs, validate, write back (indent=2).
+
+By default the bucket is only an optional MIRROR: the JSON files keep their
+image paths relative to the API ('/static/golden_path/...'), which the API
+serves itself and turns into absolute URLs. That keeps the demo offline-first
+(it works even if Supabase is down). --rewrite-json makes the frontend load
+images from Supabase instead; the API then depends on Supabase for images.
 
 Re-running is safe: uploads upsert, and JSON files are written only when
 their content changes.
@@ -37,6 +43,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from pydantic import ValidationError  # noqa: E402
 
+from app.core.urls import to_internal, to_relative  # noqa: E402
 from app.schemas.sky_patch import SkyPatchResponse  # noqa: E402
 
 MIGRATION = REPO_ROOT / "supabase" / "migrations" / "20261114000000_citizen_reports.sql"
@@ -333,7 +340,7 @@ def patch_payload(raw: dict[str, Any], urls: dict[str, str]) -> tuple[dict[str, 
 
 def _render(model: SkyPatchResponse) -> str:
     # Same formatting as generate_golden_path.py, so diffs stay minimal.
-    return json.dumps(model.model_dump(mode="json"), indent=2) + "\n"
+    return json.dumps(to_relative(model.model_dump(mode="json")), indent=2, ensure_ascii=False) + "\n"
 
 
 def load_and_validate(files: list[Path]) -> dict[Path, dict[str, Any]] | None:
@@ -343,7 +350,7 @@ def load_and_validate(files: list[Path]) -> dict[Path, dict[str, Any]] | None:
     for path in files:
         try:
             raw = json.loads(path.read_text("utf-8"))
-            SkyPatchResponse.model_validate(raw)
+            SkyPatchResponse.model_validate(to_internal(raw))
         except (ValueError, ValidationError) as exc:
             fail(f"{path.name} does not match SkyPatchResponse:\n{exc}")
             broken = True
@@ -363,7 +370,7 @@ def patch_json_files(
             result.missing_pngs[path.name] = missing
             warn(f"{path.name}: no uploaded PNG for {', '.join(sorted(missing))} (URL kept)")
         try:
-            model = SkyPatchResponse.model_validate(patched)
+            model = SkyPatchResponse.model_validate(to_internal(patched))
         except ValidationError as exc:
             result.invalid.append(path.name)
             fail(f"{path.name}: patched payload is invalid, not written:\n{exc}")
@@ -406,6 +413,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--env-file", type=Path, default=REPO_ROOT / ".env", help="default: %(default)s"
     )
+    parser.add_argument(
+        "--rewrite-json",
+        action="store_true",
+        help="also point app/data/*.json at the Supabase URLs (default: bucket is only a mirror)",
+    )
     args = parser.parse_args(argv)
 
     print(f"SPHEREx Supabase setup{' (dry run)' if args.dry_run else ''}")
@@ -436,7 +448,11 @@ def main(argv: list[str] | None = None) -> int:
 
     db_ready = setup_database(cfg, client, args.dry_run)
     uploads = upload_pngs(cfg, client, sorted(PNG_DIR.glob("*.png")), args.dry_run)
-    patched = patch_json_files(loaded, uploads.urls, args.dry_run)
+    if args.rewrite_json:
+        patched = patch_json_files(loaded, uploads.urls, args.dry_run)
+    else:
+        step("3/3 JSON: left untouched (bucket is a mirror; use --rewrite-json to point JSON at it)")
+        patched = PatchResult(unchanged=[p.name for p in loaded])
 
     would = " (would)" if args.dry_run else ""
     step("Summary")
