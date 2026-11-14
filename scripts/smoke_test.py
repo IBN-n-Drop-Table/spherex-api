@@ -109,7 +109,17 @@ def main() -> int:
         r.note("AVISO: the base URL is not https; a public deploy should be.")
 
     # /health (may wake a sleeping free instance)
-    status, _, raw, dt = request(f"{base}/health", timeout=args.wake_timeout)
+    # A sleeping or still-booting server may refuse/reset the connection or answer
+    # 502/503 for a while: keep trying until --wake-timeout.
+    t_wake = time.monotonic()
+    while True:
+        status, _, raw, dt = request(f"{base}/health", timeout=args.wake_timeout)
+        waited = time.monotonic() - t_wake
+        if status not in (0, 502, 503, 504) or waited >= args.wake_timeout:
+            break
+        time.sleep(3)
+    if waited > 5:
+        r.note(f"server answered after {waited:.0f}s (cold start)")
     health = as_json(raw) or {}
     r.check(status == 200 and health.get("status") == "ok", "/health",
             f"{status} in {dt:.1f}s, {health or raw.decode(errors='replace')[:160]}")
