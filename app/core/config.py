@@ -22,6 +22,7 @@ class Settings:
         default_factory=lambda: _split_csv(os.getenv("CORS_ORIGINS", "*"))
     )
     data_dir: Path = Path(__file__).resolve().parent.parent / "data"
+    static_dir: Path = Path(__file__).resolve().parent.parent / "static"
 
 
 settings = Settings()

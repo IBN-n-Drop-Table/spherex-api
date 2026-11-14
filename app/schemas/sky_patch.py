@@ -6,9 +6,9 @@ startup, so a typo in a JSON fixture fails loudly instead of at demo time.
 """
 
 from datetime import date, datetime
-from enum import Enum
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, StringConstraints
 
 
 class _Strict(BaseModel):
@@ -17,14 +17,10 @@ class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class ContaminationFlag(str, Enum):
-    """Quality flags attached to a detection. Extend as the pipeline grows."""
-
-    SOURCE = "SOURCE"
-    COSMIC_RAY = "COSMIC_RAY"
-    HOT_PIXEL = "HOT_PIXEL"
-    PERSISTENCE = "PERSISTENCE"
-    EDGE = "EDGE"
+# SPHEREx L2 FLAGS names, decoded from the MSKNnnnn header keywords
+# (e.g. TRANSIENT, HOT, NONFUNC, OUTLIER, SOURCE, GHOST, STREAK, BLOOM,
+# SNOWBALL, PERSIST...). Kept open-ended because IRSA defines the list.
+ContaminationFlag = Annotated[str, StringConstraints(pattern=r"^[A-Z][A-Z0-9_]*$")]
 
 
 class TargetInfo(_Strict):
@@ -48,8 +44,8 @@ class DetectedAnomaly(_Strict):
     anomaly_id: str
     ra_deg: float = Field(ge=0, lt=360)
     dec_deg: float = Field(ge=-90, le=90)
-    pixel_x: int = Field(ge=0)
-    pixel_y: int = Field(ge=0)
+    pixel_x: int = Field(ge=0, description="Column in the PNG (origin top-left)")
+    pixel_y: int = Field(ge=0, description="Row in the PNG (origin top-left)")
     snr_confidence: float = Field(ge=0, description="Signal-to-noise ratio")
     contamination_flags: list[ContaminationFlag]
     is_clean_detection: bool

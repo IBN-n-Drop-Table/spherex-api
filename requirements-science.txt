@@ -1,0 +1,12 @@
+# Offline Golden Path pipeline (scripts/generate_golden_path.py).
+# NOT needed to run the API.
+-r requirements.txt
+numpy>=2.0
+astropy>=6.1
+astroquery>=0.4.10
+reproject>=0.14
+opencv-python-headless>=4.10
+matplotlib>=3.9
+pillow>=10.0
+# Only for --storage supabase:
+supabase>=2.0
