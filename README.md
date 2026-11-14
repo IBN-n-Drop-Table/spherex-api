@@ -67,7 +67,8 @@ Full, always up-to-date schema: **`/docs`** (OpenAPI). A real response is in
 What the frontend gets (all image URLs absolute):
 
 - `timelapse_epochs[]`: **one entry per SPHEREx visit** (3 for Barnard's Star and WISE 0855), for the blink comparator. Same stretch in every epoch, so blinking is honest. `chemical_filters` has `H2O`, `CO2`, `CO` when that visit has exposures in the window.
-- `difference_imaging`: `epoch_a` (last visit) minus `epoch_b` (first visit): the longest baseline, so the most motion. `detected_anomalies[]` come with `kind` (`appeared`/`disappeared`), `contamination_flags`, `is_clean_detection`, and the labels `detection_label` ("Detección Asistida por Software (BETA)") and `detection_notice` ("requiere verificación humana").
+- `difference_imaging`: `epoch_a` (last visit) minus `epoch_b` (first visit): the longest baseline, so the most motion (`kind: "first_vs_last"`). `detected_anomalies[]` come with `kind` (`appeared`/`disappeared`), `contamination_flags`, `is_clean_detection`, and the labels `detection_label` ("Detección Asistida por Software (BETA)") and `detection_notice` ("requiere verificación humana").
+- `difference_imaging.pairwise[]`: one difference per pair of **consecutive** visits, for the blink comparator. See [Epoch differences](#epoch-differences-first-vs-last-and-consecutive).
 - `spectrum_102_bands` (from `spectrum_epoch_id`) and `light_curve` (one point per visit). Where there is no valid photometry, `flux_mjy_sr` is `null` with a `note`, never 0.
 - `saturated` / `spectrum_message`: bright stars (Barnard's Star, R Draconis) saturate SPHEREx. Their cores are **shown** in the PNGs but **excluded** from the spectrum and light curve.
 - `fallback` / `fallback_message`: see below.
@@ -226,7 +227,19 @@ export SUPABASE_BUCKET="spherex-golden-path"
 python scripts/generate_golden_path.py --all --storage supabase
 ```
 
-Downloaded cutouts are stored in astropy's download cache (`~/.astropy/cache`), so a re-run only reprocesses them. To download them again, pass `--no-cache`. For all options, run `--help`.
+Downloaded cutouts are stored in astropy's download cache (`~/.cache/astropy` with astropy 7+, `~/.astropy/cache` before), so a re-run only reprocesses them and downloads only what is missing; it logs `Cutouts: N/M already in the astropy cache`. SIA answers are kept in `cache/sia/` (git-ignored). To download everything again, pass `--no-cache`. For all options, run `--help`.
+
+```bash
+# Cache only, no network at all (fails with a clear message if a SIA answer
+# or a cutout is missing). Same as CACHE_ONLY=1.
+python scripts/generate_golden_path.py --all --offline
+# ...or leave uncached cutouts out instead of failing (what a failed download does)
+python scripts/generate_golden_path.py --all --offline --skip-missing
+# Write JSON + PNGs to a staging directory instead of the repo, to compare first
+python scripts/generate_golden_path.py --all --offline --skip-missing --output-root /tmp/stage
+```
+
+With every cutout cached, `--all` takes about 70 s (measured 2026-11-14, 1,944 cutouts).
 
 ### What it does
 
@@ -239,7 +252,8 @@ Downloaded cutouts are stored in astropy's download cache (`~/.astropy/cache`), 
    - RGB image: B = detectors 1–2, G = 3–4, R = 5–6.
    - H₂O (1.4–1.9 and 2.6–2.8 µm), CO₂ (4.2–4.4 µm) and CO (4.60–4.74 µm) filter images.
    - Difference image (last − first visit). Each detector's coadd is only ever subtracted from the same detector's coadd, because each detector sees different wavelengths.
-   - Anomalies found with OpenCV on the difference image's SNR map. Detections within `--dedup-radius-px` (12) PNG px are merged, and each remaining anomaly gets its own 102-band spectrum.
+   - Consecutive-visit differences (`pairwise`), from the same per-visit stacks: no re-stacking, no anomaly detection.
+   - Anomalies found with OpenCV on the (first vs last) difference image's SNR map. Detections within `--dedup-radius-px` (12) PNG px are merged, and each remaining anomaly gets its own 102-band spectrum.
    - A 6 × 17 = 102-channel LVF spectrum, combined with inverse-variance weighting.
    - A light curve with one point per visit, averaged over the channels every visit shares. No valid photometry gives `null` plus a `note`, never 0.
 
@@ -258,6 +272,34 @@ Downloaded cutouts are stored in astropy's download cache (`~/.astropy/cache`), 
 **Formats.** `image_format` (`"png"` or `"fits"`) is set on each timelapse epoch (it also applies to that epoch's `chemical_filters`) and on `difference_imaging`. Everything cached is `png` today.
 
 **Difference image.** `subtracted = epoch_a − epoch_b` = last visit − first visit (e.g. `2025_M12 − 2025_M0`). Red means brighter in `epoch_a`, blue brighter in `epoch_b`.
+
+### Epoch differences: first vs last, and consecutive
+
+`difference_imaging` holds two kinds of difference image. Both are `later − earlier` (red = brighter in the later visit, blue = fainter, black = no data) and share the patch geometry.
+
+| | `difference_imaging` itself | each item of `difference_imaging.pairwise[]` |
+|---|---|---|
+| `kind` | `"first_vs_last"` | `"consecutive"` |
+| visits | first and last | visit *i* and *i + 1*, in time order |
+| detectors | every detector both visits share | detectors both visits share with ≥ 5 frames in each (a median of 3 frames doesn't reject artefacts); if none qualifies, every shared one |
+| colour scale | 99.5th percentile of \|difference\| (unchanged) | ± 5 σ of the background, saturated/masked pixels excluded, after removing a smooth sky (60″ blocks, sources masked) |
+| anomaly detection | yes (`detected_anomalies`) | **no**: fixed stars leave 6–14 % residuals that would show up as false anomalies |
+
+Fields on both: `epoch_a` (later), `epoch_b` (earlier), `delta_t_days`, `detectors_used`, `expected_shift_arcsec` (catalogue proper motion × Δt) and `weak_signal`. `weak_signal: true` means that expected shift is below one native SPHEREx pixel (6.15″): a dipole, if any, is faint, and the UI should say so. Every consecutive pair of the 5 challenge targets is `weak_signal: true` (2–6″ in ~6 months); only first-vs-last reaches 6.6–10.2″ for the fast movers. `pairwise` is `[]` with fewer than 3 visits, because the only pair is then the first-vs-last one.
+
+**Picking the image for the blink comparator.** For the two epochs on screen, look in `pairwise` for the item whose `{epoch_a, epoch_b}` is that pair. If there isn't one, and the pair is the first and last visit, use `difference_imaging` itself. Any other pair (e.g. visit 1 vs visit 3 of 4) has no image: offer the closest consecutive pair or first-vs-last.
+
+```js
+function diffFor(d, e1, e2) {
+  const want = new Set([e1, e2]);
+  const hit = (d.pairwise ?? []).find(p => want.has(p.epoch_a) && want.has(p.epoch_b));
+  if (hit) return hit;
+  if (want.has(d.epoch_a) && want.has(d.epoch_b)) return d; // first_vs_last
+  return null;
+}
+```
+
+Read the pair images knowing what the targets are: Barnard's Star and Epsilon Indi B show a clear dipole in every pair; WISE 0855 is lost next to a field star in these broadband differences; RW Aurigae and R Draconis have no motion, and what changes is their (saturated) brightness.
 
 **Anomalies.**
 - Every detection has its own `spectrum_102_bands`. It is measured in `spectrum_epoch_id`: `epoch_a` if the source brightened, `epoch_b` if it faded.

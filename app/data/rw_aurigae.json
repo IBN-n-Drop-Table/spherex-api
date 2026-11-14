@@ -4989,7 +4989,57 @@
       }
     ],
     "detection_label": "Detección Asistida por Software (BETA)",
-    "detection_notice": "Anomalía detectada por software: requiere verificación humana"
+    "detection_notice": "Anomalía detectada por software: requiere verificación humana",
+    "kind": "first_vs_last",
+    "delta_t_days": 368.46,
+    "detectors_used": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "expected_shift_arcsec": 0.03,
+    "weak_signal": true,
+    "pairwise": [
+      {
+        "kind": "consecutive",
+        "epoch_a": "2025_M6",
+        "epoch_b": "2025_M0",
+        "image_format": "png",
+        "subtracted_image_url": "/static/golden_path/rwaurigae_diff_epoch1_epoch2.png",
+        "delta_t_days": 175.49,
+        "detectors_used": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "expected_shift_arcsec": 0.01,
+        "weak_signal": true
+      },
+      {
+        "kind": "consecutive",
+        "epoch_a": "2025_M12",
+        "epoch_b": "2025_M6",
+        "image_format": "png",
+        "subtracted_image_url": "/static/golden_path/rwaurigae_diff_epoch2_epoch3.png",
+        "delta_t_days": 192.97,
+        "detectors_used": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "expected_shift_arcsec": 0.01,
+        "weak_signal": true
+      }
+    ]
   },
   "spectrum_102_bands": [
     {

@@ -335,6 +335,8 @@ def patch_payload(raw: dict[str, Any], urls: dict[str, str]) -> tuple[dict[str, 
     diff = data.get("difference_imaging", {})
     if "subtracted_image_url" in diff:
         diff["subtracted_image_url"] = _rewrite(diff["subtracted_image_url"], urls, missing)
+    for pair in diff.get("pairwise") or []:
+        pair["subtracted_image_url"] = _rewrite(pair["subtracted_image_url"], urls, missing)
     return data, missing
 
 
