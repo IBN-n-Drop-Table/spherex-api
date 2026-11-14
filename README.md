@@ -345,7 +345,7 @@ Software: FastAPI, Astropy, Astroquery/PyVO, reproject, NumPy, OpenCV, Matplotli
 
 ## License
 
-MIT, see [LICENSE](LICENSE). (TODO: copyright holder name pending.)
+MIT, see [LICENSE](LICENSE). Copyright (c) 2026 IBN-n-Drop-Table (NASA Space Apps Challenge 2026 team).
 
 ## Adding a target
 
