@@ -29,7 +29,7 @@ Backend for the **SPHEREx** citizen-science app (NASA Space Apps 2026). It serve
 ## TLDR
 This api serves already processed SphereX images from a given right ascension, declination, field of view and band.
 It has some preprocessed targets required by Nasa Space Apps to ensure a fast response for these targets, 
-these targets are Barnard’s Star, Epsilon Indi B, WISE 0855, RW Aurigae and R Draconis. 
+which are Barnard’s Star, Epsilon Indi B, WISE 0855, RW Aurigae and R Draconis. 
 If the target coordinates do not match the ones pre-cached, a job process is run to create the new spectrogram for those
 coordinates.
 
