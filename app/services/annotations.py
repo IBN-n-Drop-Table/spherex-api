@@ -10,10 +10,15 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
+from app.core.credits import DATA_CREDITS
+from app.schemas.credits import DataCredit
 from app.core.science_notes import SATURATED_LIGHT_CURVE_NOTE, SCIENCE_NOTES, ScienceNote
 from app.schemas.sky_patch import LightCurvePoint, SkyPatchResponse, SpectralBand
 from app.schemas.spectrum import SpectrumResponse
 from app.services.golden_path import normalize_target
+
+# Validated once: model_copy(update=...) does not validate, so pass models, not dicts.
+CREDITS = [DataCredit.model_validate(c) for c in DATA_CREDITS]
 
 
 def note_for(target_name: str | None) -> ScienceNote | None:
@@ -74,9 +79,12 @@ def annotate_spectrum(spectrum: SpectrumResponse) -> SpectrumResponse:
 
 
 def annotate(model: BaseModel) -> BaseModel:
-    """Any response model -> the same model with its serve-time annotations."""
+    """Any response model -> the same model with its serve-time annotations
+    (science notes, quality, and the data credits every patch/spectrum carries)."""
     if isinstance(model, SkyPatchResponse):
-        return annotate_patch(model)
-    if isinstance(model, SpectrumResponse):
-        return annotate_spectrum(model)
-    return model
+        model = annotate_patch(model)
+    elif isinstance(model, SpectrumResponse):
+        model = annotate_spectrum(model)
+    else:
+        return model
+    return model.model_copy(update={"data_credits": CREDITS})

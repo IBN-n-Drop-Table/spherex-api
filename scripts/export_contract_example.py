@@ -39,6 +39,7 @@ def main() -> int:
         others = {}
         lost = client.get("/api/v1/jobs/00000000-0000-4000-8000-000000000000")
         others["GET /api/v1/jobs/{lost job_id} -> 404"] = lost.json()
+        others["GET /credits -> 200"] = client.get("/credits").json()
     trimmed = 0
     for a in body["difference_imaging"]["detected_anomalies"]:
         if len(a["spectrum_102_bands"]) > 3:

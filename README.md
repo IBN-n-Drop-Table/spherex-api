@@ -75,6 +75,7 @@ Full, always up-to-date schema: **`/docs`**. A real response is in [`docs/contra
 | `GET` | `/api/v1/spectrum` | 102-band spectrum of a target, an anomaly or a position |
 | `GET`/`POST` | `/api/v1/reports` | Community feed |
 | `POST` | `/api/v1/reports/{id}/verify` | Peer confirmation |
+| `GET` | `/credits` (also `/api/v1/credits`) | Data used: SPHEREx DR1/QR3 (DOIs), Gaia DR3, WISE citations and the SPHEREx acknowledgement |
 | `GET` | `/health` | Service status |
 
 ### Errors
@@ -468,6 +469,8 @@ Some caveats are added to responses **when they are served**, from a static tabl
 ---
 
 ## Data used
+
+The same citations are served by `GET /credits` and in the `data_credits` field of every `/sky-patch` and `/spectrum` response (one source: `app/core/credits.py`; a test checks it matches this section word for word).
 
 Everything the API serves comes from public archives. Nothing is simulated: where a measurement is impossible (e.g. saturated stars), the response says so (`null` + `note`, `saturated`, `spectrum_message`).
 

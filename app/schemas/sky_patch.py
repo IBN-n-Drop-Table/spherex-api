@@ -12,6 +12,8 @@ from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, StringConstraints, model_validator
 
+from app.schemas.credits import DataCredit
+
 
 class _Strict(BaseModel):
     """Base model: reject unknown fields so the contract cannot drift silently."""
@@ -35,6 +37,8 @@ FALLBACK_REASON_DOC = ("Added field. Machine-readable cause when `fallback` is t
 ResponseQuality = Literal["unvalidated", "low"]
 SCIENCE_NOTE_DOC = ("Added field, set when served. What can and cannot be claimed from this object's "
                     "data (Spanish, for the UI). null when there is nothing to add")
+DATA_CREDITS_DOC = ("Added field, set when served. Data this response comes from: SPHEREx DR1/QR3 "
+                    "(with DOIs), Gaia DR3, WISE. Same citations as GET /credits and the README")
 QUALITY_DOC = ("Added field, set when served. `unvalidated`: the measurement is known to be contaminated "
                "(see science_note); `low`: the target core saturates SPHEREx. null: not flagged")
 
@@ -235,6 +239,7 @@ class SkyPatchResponse(_Strict):
     fallback_reason: FallbackReason | None = Field(default=None, description=FALLBACK_REASON_DOC)
     science_note: str | None = Field(default=None, description=SCIENCE_NOTE_DOC)
     quality: ResponseQuality | None = Field(default=None, description=QUALITY_DOC)
+    data_credits: list[DataCredit] | None = Field(default=None, description=DATA_CREDITS_DOC)
 
     @model_validator(mode="after")
     def _consistent(self) -> Self:
