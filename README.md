@@ -147,19 +147,7 @@ curl localhost:8000/api/v1/jobs/<job_id>
 - Polling a job that no longer exists (a restart, e.g. Render spinning the free instance down, or 1 h after it finished) answers **404** with `code: "job_not_found"` and `detail: "El análisis se perdió por un reinicio del servidor; vuelve a lanzarlo."`. Show the message and offer to POST the same query again.
 - The legacy `GET /sky-patch` / `GET /spectrum` 202 + `Location` flow still works.
 
-### Offline-first fallback
-
-IRSA gets **5 s** (`SIA_BUDGET_S`, retries included) to answer. On a timeout, 429 or 5xx, or when the server has no science stack, the job still **completes**: its result is the cached patch nearest to the requested position, with
-
-```json
-"fallback": true,
-"fallback_message": "Mostrando datos en caché debido a alta latencia en servidores de origen. ...",
-"fallback_reason": "irsa_unavailable"
-```
-
-`fallback_reason` is the machine-readable cause, on sky patches, spectra and `/epochs`: `irsa_unavailable` (IRSA timed out, throttled or answered 5xx), `live_processing_unavailable` (this server has no science stack), or `unknown`. It is `null` when `fallback` is false. Branch on it, show `fallback_message`.
-
-`target_info.name` says which cached object is shown. A failure caused by IRSA never produces a 500. A position IRSA answers for but SPHEREx hasn't covered twice yet ends as `status: failed` with a readable `error`.
+See [Offline-first fallback](#offline-first-fallback) for what a job returns when IRSA fails.
 
 ### `GET /api/v1/epochs?ra=..&dec=..`
 
@@ -183,8 +171,17 @@ IRSA gets **5 s** (`SIA_BUDGET_S`, retries included) to answer. On a timeout, a 
 
 ```json
 "fallback": true,
-"fallback_message": "Mostrando datos en caché debido a alta latencia en servidores de origen. ..."
+"fallback_message": "Mostrando datos en caché debido a alta latencia en servidores de origen. ...",
+"fallback_reason": "irsa_unavailable"
 ```
+
+`fallback_reason` is the machine-readable cause, on sky patches, spectra and `/epochs`; it is `null` when `fallback` is false. Branch on it, show `fallback_message` (Spanish), which is worded for that cause:
+
+| `fallback_reason` | When | `fallback_message` starts with |
+|---|---|---|
+| `irsa_unavailable` | IRSA timed out, throttled (429) or answered 5xx | "Mostrando datos en caché debido a alta latencia en servidores de origen" (+ the nearest object if it is far, + the technical detail) |
+| `live_processing_unavailable` | The position is not pre-computed and this server has no live processing (no science stack) | "Estas coordenadas no están precalculadas y el análisis en vivo no está disponible ahora en este servidor. Elige uno de los 5 objetos del reto o vuelve a lanzar un análisis en vivo (POST /api/v1/jobs) más tarde" + which object is shown instead |
+| `unknown` | Anything else that still fell back | "Mostrando datos en caché: el análisis en vivo no pudo completarse" |
 
 `target_info.name` says which cached object is shown. A failure caused by IRSA never produces a 500. A position IRSA answers for but SPHEREx hasn't covered twice yet ends as `status: failed` with a readable `error`.
 

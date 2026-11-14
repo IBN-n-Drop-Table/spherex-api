@@ -4,7 +4,7 @@ sexagesimal coordinates, band echo, /epochs, /targets, relative URLs on disk."""
 import pytest
 
 from app.core.config import settings
-from app.services.fallback import FALLBACK_MESSAGE
+from app.services.fallback import FALLBACK_MESSAGE, LIVE_UNAVAILABLE_MESSAGE
 from app.services.live import LiveProcessingUnavailable, UpstreamUnavailable
 from tests.conftest import load_raw
 
@@ -125,7 +125,8 @@ def test_irsa_outage_completes_with_cached_fallback(live_client, error, reason):
     job = live_client.get(f'/api/v1/jobs/{res.json()["job_id"]}').json()
     assert job["status"] == "completed" and job["error"] is None
     result = job["result"]
-    assert result["fallback"] is True and result["fallback_message"].startswith(FALLBACK_MESSAGE)
+    expected = FALLBACK_MESSAGE if reason == "irsa_unavailable" else LIVE_UNAVAILABLE_MESSAGE
+    assert result["fallback"] is True and result["fallback_message"].startswith(expected)
     assert result["fallback_reason"] == reason
     assert result["target_info"]["name"] == "WISE 0855"  # nearest cached target to (133, -7)
     assert all(u.startswith("http://testserver/static/") for u in _image_urls(result))
@@ -183,3 +184,28 @@ def test_targets_lists_the_five_challenge_objects(live_client):
     targets = live_client.get("/api/v1/targets").json()
     assert {t["key"] for t in targets} == {"WISE_0855", "BARNARDS_STAR", "EPSILON_INDI_B", "RW_AURIGAE", "R_DRACONIS"}
     assert all(t["sky_patch_query"].startswith("/api/v1/sky-patch?target=") for t in targets)
+
+
+def test_fallback_message_matches_its_reason(live_client):
+    """Only an IRSA problem talks about latency. Without live processing, the message
+    invites to pick a challenge object or to launch a live job later."""
+    live_client.runner.fail = LiveProcessingUnavailable("science stack not installed")
+    res = live_client.post("/api/v1/jobs", json={"ra": 10.0, "dec": 41.0})
+    result = live_client.get(f'/api/v1/jobs/{res.json()["job_id"]}').json()["result"]
+    msg = result["fallback_message"]
+    assert result["fallback_reason"] == "live_processing_unavailable"
+    assert "latencia" not in msg and "science stack" not in msg
+    assert "no están precalculadas" in msg and "5 objetos" in msg and "POST /api/v1/jobs" in msg
+    assert result["target_info"]["name"] in msg  # says which object is shown instead
+
+    live_client.runner.fail = UpstreamUnavailable("NASA/IRSA is unavailable or busy right now (HTTP 503).")
+    res = live_client.post("/api/v1/jobs", json={"ra": 12.0, "dec": 41.0})
+    result = live_client.get(f'/api/v1/jobs/{res.json()["job_id"]}').json()["result"]
+    assert result["fallback_reason"] == "irsa_unavailable"
+    assert result["fallback_message"].startswith(FALLBACK_MESSAGE) and "latencia" in result["fallback_message"]
+
+
+def test_epochs_fallback_message_matches_its_reason(live_client):
+    live_client.runner.epochs_result = LiveProcessingUnavailable("science stack not installed")
+    body = live_client.get("/api/v1/epochs", params={"ra": 10, "dec": 41}).json()
+    assert body["fallback_reason"] == "live_processing_unavailable" and "latencia" not in body["fallback_message"]

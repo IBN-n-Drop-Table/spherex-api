@@ -57,7 +57,7 @@ def get_epochs(
         epochs = _from_patch(patch)
         return EpochsResponse(ra_deg=ra_deg, dec_deg=dec_deg, n_images=_total(epochs), epochs=epochs,
                               is_cached_golden_path=True, fallback=True,
-                              fallback_message=message_for(patch, distance, str(exc)),
+                              fallback_message=message_for(patch, distance, exc),
                               fallback_reason=reason_code(exc))
 
 
