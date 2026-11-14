@@ -4,6 +4,9 @@ import os
 # shell exports these. Runs before app.core.config is imported.
 for var in ("SUPABASE_URL", "SUPABASE_KEY"):
     os.environ.pop(var, None)
+os.environ["LIVE_WARMUP"] = "0"  # don't import the science stack in a background thread
+for var in ("PUBLIC_BASE",):
+    os.environ.pop(var, None)
 
 import json  # noqa: E402
 

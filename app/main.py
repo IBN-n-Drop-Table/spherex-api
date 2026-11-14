@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
 from app.routers import epochs, jobs, reports, sky_patch, spectrum
 from app.services.golden_path import warm_cache
-from app.services.live import live_processing_available
+from app.services.live import live_processing_available, warm_up_in_background
 from app.services.reports import get_report_service
 
 
@@ -30,6 +30,7 @@ class PublicStaticFiles(StaticFiles):
 async def lifespan(_: FastAPI):
     warm_cache()  # fail fast if a cached JSON breaks the contract
     get_report_service()  # pick Supabase or the in-memory fallback, log which
+    warm_up_in_background()
     yield
 
 

@@ -87,6 +87,25 @@ def _load_pipeline() -> ModuleType:
         return module
 
 
+def warm_up_in_background() -> None:
+    """Import the science stack in a daemon thread at startup, so the first live
+    job (or /epochs call) does not pay several seconds of imports. Opt out
+    with LIVE_WARMUP=0 (saves ~100 MB of RAM until the first live job)."""
+    import os
+
+    if os.getenv("LIVE_WARMUP", "1") == "0" or not live_processing_available():
+        return
+
+    def run() -> None:
+        try:
+            _load_pipeline()
+            logger.info("Live pipeline warmed up")
+        except Exception:  # never break startup
+            logger.exception("Live pipeline warm-up failed")
+
+    threading.Thread(target=run, name="pipeline-warmup", daemon=True).start()
+
+
 class UpstreamUnavailable(RuntimeError):
     pass
 

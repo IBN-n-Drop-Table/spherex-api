@@ -19,6 +19,7 @@ uvicorn app.main:app --reload --port 8000
 curl "http://localhost:8000/api/v1/sky-patch?target=WISE_0855"
 curl "http://localhost:8000/api/v1/sky-patch?ra=133.795&dec=-7.245&fov=5"
 curl -i "http://localhost:8000/api/v1/sky-patch?target=M31"   # 404
+curl "http://localhost:8000/api/v1/sky-patch?ra=08h55m10.831s&dec=-7d14m42.53s&band=H2O"
 curl -i "http://localhost:8000/api/v1/sky-patch?ra=10.68&dec=41.27"   # 202 + job
 ```
 
@@ -35,21 +36,74 @@ pytest -q
 
 ## Endpoints
 
-### `GET /api/v1/sky-patch`
+Full, always up-to-date schema: **`/docs`** (OpenAPI). A real response is in
+[`docs/contract-example.json`](docs/contract-example.json). CORS is open (`*`).
 
-| param    | type  | notes                                   |
-|----------|-------|-----------------------------------------|
-| `target` | str   | `WISE_0855` (case, spaces and hyphens are ignored) |
-| `ra`     | float | degrees, 0–360                           |
-| `dec`    | float | degrees, −90–90                          |
-| `fov`    | float | **arcminutes**, 1–30, default 5. Cached targets are always 5′ |
+| method | path | what |
+|--------|------|------|
+| `GET`  | `/api/v1/targets` | The 5 challenge objects (demo buttons) and whether they are cached |
+| `GET`  | `/api/v1/sky-patch` | Timelapse (every visit), difference image, anomalies, spectrum, light curve |
+| `POST` | `/api/v1/jobs` | Start (or reuse) a computation; returns a `job_id` at once |
+| `GET`  | `/api/v1/jobs/{job_id}` | Poll: `status`, `stage`, `progress`, `message`, `eta_s`, `result` |
+| `GET`  | `/api/v1/epochs` | Visits covering a position (metadata only, no downloads) |
+| `GET`  | `/api/v1/spectrum` | 102-band spectrum of a target, an anomaly or a position |
+| `GET/POST` | `/api/v1/reports` | Community feed (below) |
+
+### Coordinates, field of view, band
+
+- `ra` / `dec`: decimal degrees **or** sexagesimal: `ra=08h55m10.831s` (also `08:55:10.831`), `dec=-7d14m42.53s` (also `-07:14:42.53`). Bad input -> **422**.
+- `fov`: **arcminutes**, 1-30, default 5 (same unit as the frontend URL `?fov=5`). Cached targets are always 5'; live jobs are capped at `LIVE_MAX_FOV_ARCMIN` (15).
+- `band=H2O|CO2|CO`: only echoed back as `band`. Every response always carries all chemical filters (`chemical_filters`), and the frontend picks one.
+
+### `GET /api/v1/sky-patch`
 
 | situation | response |
 |-----------|----------|
-| `target` is cached, or (`ra`, `dec`) falls in a cached target's box | **200** `SkyPatchResponse` |
-| `target` is a catalogue target without cached data, or (`ra`, `dec`) anywhere else | **202** job (below) |
-| unknown `target` and no coordinates | **404** `{"detail": "Target not found in Golden Path cache. Try WISE_0855."}` |
-| value out of range (e.g. `dec=200`, `fov=0.5`) | **422** |
+| `target` is cached, or (`ra`, `dec`) falls in a cached target's box | **200** `SkyPatchResponse`, instantly |
+| a catalogue target without cached data, or any other position | **202** job (poll it) |
+| unknown `target` and no coordinates | **404** |
+| value out of range (`dec=200`, `fov=0.5`, `ra=25h`) | **422** |
+
+What the frontend gets (all image URLs absolute):
+
+- `timelapse_epochs[]`: **one entry per SPHEREx visit** (3 for Barnard's Star and WISE 0855), for the blink comparator. Same stretch in every epoch, so blinking is honest. `chemical_filters` has `H2O`, `CO2`, `CO` when that visit has exposures in the window.
+- `difference_imaging`: `epoch_a` (last visit) minus `epoch_b` (first visit): the longest baseline, so the most motion. `detected_anomalies[]` come with `kind` (`appeared`/`disappeared`), `contamination_flags`, `is_clean_detection`, and the labels `detection_label` ("Detección Asistida por Software (BETA)") and `detection_notice` ("requiere verificación humana").
+- `spectrum_102_bands` (from `spectrum_epoch_id`) and `light_curve` (one point per visit). Where there is no valid photometry, `flux_mjy_sr` is `null` with a `note`, never 0.
+- `saturated` / `spectrum_message`: bright stars (Barnard's Star, R Draconis) saturate SPHEREx. Their cores are **shown** in the PNGs but **excluded** from the spectrum and light curve.
+- `fallback` / `fallback_message`: see below.
+
+### Jobs with progress (coordinates not in the cache)
+
+```bash
+curl -X POST localhost:8000/api/v1/jobs -H 'content-type: application/json' \
+     -d '{"ra": "00h42m44s", "dec": "+41d16m09s", "fov": 5}'
+# 202 {"job_id": "...", "status": "queued", "stage": "queued", "progress": 0, "retry_after_ms": 1500, ...}
+curl localhost:8000/api/v1/jobs/<job_id>
+# {"status": "running", "stage": "download", "progress": 0.41,
+#  "message": "Descargando recortes de IRSA: 7/18 (~25 s restantes)", "eta_s": 27, ...}
+```
+
+- Cached targets come back **200** with `status: completed` and the `result` at once.
+- Poll every `retry_after_ms` (1500 ms). Stages: `queued` -> `query` -> `download` -> `stack` -> `render` -> `done` (or `failed`).
+- **A cold job takes tens of seconds to a few minutes**: each IRSA cutout takes ~12 s (it always carries a ~4 MB PSF table), and live mode downloads 1 cutout per detector and visit (~18). Measured on 2026-11-14: 40-100 s for Barnard's Star. The messages say so.
+- The same query returns the same job. One job runs at a time; more than 8 queued -> **503** `Retry-After: 30`.
+- Jobs live in memory (1 h after finishing). A restart forgets them, which is why the service runs 1 uvicorn worker.
+- The legacy `GET /sky-patch` / `GET /spectrum` 202 + `Location` flow still works.
+
+### Offline-first fallback
+
+IRSA gets **5 s** (`SIA_BUDGET_S`, retries included) to answer. On a timeout, 429 or 5xx, or when the server has no science stack, the job still **completes**: its result is the cached patch nearest to the requested position, with
+
+```json
+"fallback": true,
+"fallback_message": "Mostrando datos en caché debido a alta latencia en servidores de origen. ..."
+```
+
+`target_info.name` says which cached object is shown. A failure caused by IRSA never produces a 500. A position IRSA answers for but SPHEREx hasn't covered twice yet ends as `status: failed` with a readable `error`.
+
+### `GET /api/v1/epochs?ra=..&dec=..`
+
+Visit list (`epoch_id`, `date`, `date_start`, `date_end`, `n_images`, `n_per_detector`). It is instant for cached targets. Otherwise it makes one IRSA query (at most 5 s), with the same fallback. Use it to draw the timeline while a job runs.
 
 ### `GET /api/v1/spectrum`
 
@@ -59,21 +113,7 @@ Precomputed 102-band spectra, so clicking an anomaly needs no live processing.
 - `?target=WISE_0855&anomaly_id=anom_04`: one detected anomaly (404 if it doesn't exist).
 - `?ra=..&dec=..[&radius_arcsec=6]`: the closest cached target centre or anomaly within the radius.
 
-Anything else returns **202** with a live job. The same spectra are also embedded in `/sky-patch` (`detected_anomalies[].spectrum_102_bands`).
-
-### Live jobs: `GET /api/v1/jobs/{job_id}`
-
-A 202 answers immediately with `{"job_id": "…", "status": "queued", …}`. Its `Location` header holds the polling URL, and `Retry-After: 5` says how long to wait. Poll until `status` is `completed` (`result` holds the same body a 200 would) or `failed` (`error` holds a readable message, e.g. when IRSA is down).
-
-```json
-{"job_id": "…", "kind": "sky_patch", "status": "queued | running | completed | failed",
- "result": null, "error": null, "created_at": "…", "updated_at": "…"}
-```
-
-- Repeating the same query while its job is queued or running returns the same job. Once it has completed, the same query answers 200 with the result.
-- Jobs are kept in memory for `JOB_TTL_S` (default 1 h) after they finish; then the job and its PNGs (`/static/live/<job_id>/`) are deleted. A restart forgets all jobs.
-- To be gentle with IRSA, one job runs at a time (`LIVE_MAX_RUNNING_JOBS`), with up to 24 exposures per epoch (`LIVE_MAX_EXPOSURES_PER_EPOCH`). With more than `LIVE_MAX_ACTIVE_JOBS` (8) queued or running, new queries get **503** with `Retry-After: 30`.
-- A live job takes 1–3 minutes when IRSA is healthy.
+Anything else returns **202** with a live job. The response carries `saturated` / `spectrum_message` when relevant.
 
 ### Citizen discovery reports (community feed)
 
@@ -121,11 +161,11 @@ What it does:
 
 1. **Database.** If `SUPABASE_DB_URL` is set and `psycopg` is installed (`pip install "psycopg[binary]"`), it applies [`supabase/migrations/20261114000000_citizen_reports.sql`](supabase/migrations/20261114000000_citizen_reports.sql). If not, it checks that `citizen_reports` is reachable. If the table isn't there, it prints how to paste the SQL into **Dashboard → SQL Editor** once.
 2. **Storage.** It creates the public bucket `SUPABASE_BUCKET` (default `spherex-golden-path`), or makes an existing one public. Then it uploads every PNG to `golden_path/<file>`, overwriting existing files.
-3. **JSON.** It points the image URLs in `app/data/*.json` at the public bucket URLs. That covers `image_url`, `chemical_filters` and `subtracted_image_url`, whether they were localhost or an older bucket. It checks each file against `SkyPatchResponse` and writes it only if something changed.
+3. **JSON (only with `--rewrite-json`).** By default the bucket is only a **mirror**: `app/data/*.json` keep image paths relative to the API (`/static/golden_path/...`). The API serves the images itself and turns the paths into absolute URLs, so the demo keeps working even if Supabase is down. With `--rewrite-json`, the JSON files point at the bucket instead.
 
 Keys: the script needs the **service_role** key, because it creates the bucket and uploads. Put it in `SUPABASE_SERVICE_ROLE_KEY`; if that is empty, the script uses `SUPABASE_KEY`. The API only needs the **anon** key in `SUPABASE_KEY`, so one `.env` works for both. Exit code 0 means ready, 1 means some step failed, 2 means credentials are missing.
 
-To go back to local images, re-run `generate_golden_path.py`.
+To go back to local images after `--rewrite-json`, re-run `generate_golden_path.py`.
 
 ## Layout
 
@@ -139,7 +179,12 @@ app/
   core/patch_geometry.py  # patch WCS, pixel conventions, duplicate suppression (pure Python)
   routers/sky_patch.py  # HTTP layer
   routers/spectrum.py   # /spectrum: target + anomaly spectra
-  routers/jobs.py       # /jobs/{id}: live job polling
+  routers/jobs.py       # POST /jobs, GET /jobs/{id}: jobs with progress
+  routers/epochs.py     # /epochs (visit metadata) and /targets
+  routers/common.py     # coordinates, public URLs, live jobs + fallback
+  core/coords.py        # RA/Dec parser: degrees or sexagesimal (pure Python)
+  core/urls.py          # relative image paths on disk <-> absolute URLs on the wire
+  services/fallback.py  # offline-first: nearest cached patch when IRSA fails
   routers/reports.py    # /reports: submit, feed, verify
   services/golden_path.py  # lookup over cached targets and spectra
   services/jobs.py      # thread-safe in-memory job store (TTL, de-dup, limits)
@@ -148,7 +193,7 @@ app/
   data/<target>.json    # generated Golden Path payloads
   static/golden_path/   # generated PNGs (--storage local)
 scripts/generate_golden_path.py  # offline IRSA -> JSON/PNG pipeline
-scripts/setup_supabase.py        # migration + bucket + PNG upload + JSON URL patch
+scripts/setup_supabase.py        # migration + bucket + optional PNG mirror
 supabase/migrations/  # SQL for citizen_reports (table, indexes, RLS, verify RPC)
 tests/
 ```
@@ -170,7 +215,7 @@ python scripts/generate_golden_path.py --target WISE_0855
 python scripts/generate_golden_path.py --all
 ```
 
-With `--storage local` (the default), PNGs go to `app/static/golden_path/` and the API serves them at `http://localhost:8000/static/...`. If the frontend uses a different host, set `--public-base-url`.
+With `--storage local` (the default), PNGs go to `app/static/golden_path/` and are **committed to the repo**. The JSON stores relative paths (`/static/golden_path/...`), and the API prepends its public base (`PUBLIC_BASE`, or the request host) when it serves them.
 
 To publish already-generated PNGs, use [`scripts/setup_supabase.py`](#supabase-setup-one-command). To upload straight from the pipeline instead, the bucket must already exist and be **public**:
 
@@ -185,20 +230,20 @@ Downloaded cutouts are stored in astropy's download cache (`~/.astropy/cache`), 
 
 ### What it does
 
-1. **Finds the exposures.** It runs an IRSA SIA query on `spherex_dr1` and `spherex_qr3`. If those have too few exposures, it also queries the deep-field collections. Duplicates across releases are removed.
-2. **Picks two epochs.** Exposures are grouped into survey visits by `t_min`. The script picks the best-covered pair of visits about 6 months apart (`--epoch-strategy first-last` picks the earliest and latest instead).
-3. **Downloads cutouts, not full files.** It uses IRSA's cutout service (`access_url?center=..&size=..`), which returns the same MEF layout with ZODI and WCS-WAVE included. That's about 0.3 MB in about 12 s, versus 66 MB in about 2 min for a full frame. Each cutout is checked to give the same wavelength as the full frame.
-4. **Cleans each exposure.** It computes `IMAGE − ZODI` and masks artifact-flagged pixels. Then it evaluates the spectral WCS at the target and measures aperture photometry. Finally it applies `Cutout2D` and `reproject_interp` onto a north-up, square-pixel TAN grid centred on the target's epoch-1 position. The grid covers exactly `--fov` (50 × 50 px of 6.0″ for 5′, close to SPHEREx's native 6.15″). The 600 px PNGs are an exact 12× upscale of it, which is what `patch.wcs` describes. It also records the LVF wavelength at every grid pixel, so anomalies get spectra at their own position.
+1. **Finds the exposures.** It runs an IRSA SIA2 query on `spherex_dr1` and `spherex_qr3`, the current collections per the IRSA user guide. The query goes straight over HTTP with a time budget and retries (`--sia-budget-s`). It doesn't use `Irsa.query_sia`, whose `/SIA/capabilities` pre-flight was failing with 502 on 2026-11-14. If those collections have too few exposures, it also queries the deep fields. Duplicates across releases are removed.
+2. **Uses every visit.** Exposures are grouped into survey visits by gaps in `t_min` (`--epoch-gap-days`, 30). It never uses fixed calendar semesters, which split a visit in two. Every visit becomes a timelapse epoch. The difference image compares the **first and the last** visit (`--epoch-strategy all`, the default).
+3. **Downloads cutouts, not full files.** It uses IRSA's cutout service (`access_url?center=..&size=..`), which returns the same MEF layout: IMAGE, FLAGS, VARIANCE, ZODI, EPSF, WCS-WAVE. Measured on 2026-11-14: a 5′ cutout is ~4 MB and takes ~11-13 s. It is that heavy because IRSA always includes the full EPSF table, and no documented parameter removes it. A full frame is ~70 MB. This download is the pipeline's bottleneck, and its cost scales with the number of cutouts, not with the fov.
+4. **Cleans each exposure.** It computes `IMAGE − ZODI` and masks artifact-flagged pixels (`STACK_MASK_FLAGS`). Saturated pixels (`OVERFLOW`/`BLOOM` within 3 px of an `OVERFLOW` core) are kept in a separate **display-only** copy: the PNGs show bright stars instead of a black hole, while photometry, spectra, light curves and detection never use them. Then it evaluates the spectral WCS at the target and measures aperture photometry. Finally it applies `Cutout2D` and `reproject_interp` onto a north-up, square-pixel TAN grid centred on the target's epoch-1 position. The grid covers exactly `--fov` (50 × 50 px of 6.0″ for 5′, close to SPHEREx's native 6.15″). The 600 px PNGs are an exact 12× upscale of it, which is what `patch.wcs` describes. It also records the LVF wavelength at every grid pixel, so anomalies get spectra at their own position.
 5. **Corrects for proper motion.** The target's position is propagated to each exposure's date, using the astrometry in `app/core/targets.py`. Without this, Barnard's Star and WISE 0855 would land several arcminutes away from the centre of a 5′ field.
 6. **Builds the products.**
    - RGB image: B = detectors 1–2, G = 3–4, R = 5–6.
-   - H₂O (1.4–1.9 and 2.6–2.8 µm) and CO₂ (4.2–4.4 µm) filter images.
-   - Difference image (epoch 2 − epoch 1).
+   - H₂O (1.4–1.9 and 2.6–2.8 µm), CO₂ (4.2–4.4 µm) and CO (4.60–4.74 µm) filter images.
+   - Difference image (last − first visit). Each detector's coadd is only ever subtracted from the same detector's coadd, because each detector sees different wavelengths.
    - Anomalies found with OpenCV on the difference image's SNR map. Detections within `--dedup-radius-px` (12) PNG px are merged, and each remaining anomaly gets its own 102-band spectrum.
    - A 6 × 17 = 102-channel LVF spectrum, combined with inverse-variance weighting.
-   - A light curve, averaged over the channels both epochs share.
+   - A light curve with one point per visit, averaged over the channels every visit shares. No valid photometry gives `null` plus a `note`, never 0.
 
-   Both epochs use the same display stretch, so a change in brightness shows up in the images.
+   All epochs use the same display stretch, taken from the clean stacks, so a change in brightness shows up in the images and a saturated core clips to white.
 
 ### Things the frontend should know
 
@@ -212,7 +257,7 @@ Downloaded cutouts are stored in astropy's download cache (`~/.astropy/cache`), 
 
 **Formats.** `image_format` (`"png"` or `"fits"`) is set on each timelapse epoch (it also applies to that epoch's `chemical_filters`) and on `difference_imaging`. Everything cached is `png` today.
 
-**Difference image.** `subtracted = epoch_a − epoch_b` (e.g. `2025_M6 − 2025_M0`). Red means brighter in `epoch_a`, blue brighter in `epoch_b`.
+**Difference image.** `subtracted = epoch_a − epoch_b` = last visit − first visit (e.g. `2025_M12 − 2025_M0`). Red means brighter in `epoch_a`, blue brighter in `epoch_b`.
 
 **Anomalies.**
 - Every detection has its own `spectrum_102_bands`. It is measured in `spectrum_epoch_id`: `epoch_a` if the source brightened, `epoch_b` if it faded.
@@ -232,7 +277,7 @@ The API validates every `app/data/*.json` file at startup and refuses to start i
 
 ```bash
 python scripts/generate_golden_path.py --all --workers 2
-python scripts/setup_supabase.py      # re-uploads the PNGs and patches the URLs
+python scripts/setup_supabase.py      # optional: mirror the PNGs to Supabase
 ```
 
 ## Adding a target
