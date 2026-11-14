@@ -115,17 +115,18 @@ def test_post_job_needs_a_position(live_client):
 # --------------------------------------------------------------------------- #
 # Offline-first fallback: never a 500 because of IRSA
 # --------------------------------------------------------------------------- #
-@pytest.mark.parametrize("error", [
-    UpstreamUnavailable("NASA/IRSA is unavailable or busy right now (HTTP 502)."),
-    LiveProcessingUnavailable("science stack not installed"),
+@pytest.mark.parametrize("error, reason", [
+    (UpstreamUnavailable("NASA/IRSA is unavailable or busy right now (HTTP 502)."), "irsa_unavailable"),
+    (LiveProcessingUnavailable("science stack not installed"), "live_processing_unavailable"),
 ])
-def test_irsa_outage_completes_with_cached_fallback(live_client, error):
+def test_irsa_outage_completes_with_cached_fallback(live_client, error, reason):
     live_client.runner.fail = error
     res = live_client.post("/api/v1/jobs", json={"ra": 133.0, "dec": -7.0})
     job = live_client.get(f'/api/v1/jobs/{res.json()["job_id"]}').json()
     assert job["status"] == "completed" and job["error"] is None
     result = job["result"]
     assert result["fallback"] is True and result["fallback_message"].startswith(FALLBACK_MESSAGE)
+    assert result["fallback_reason"] == reason
     assert result["target_info"]["name"] == "WISE 0855"  # nearest cached target to (133, -7)
     assert all(u.startswith("http://testserver/static/") for u in _image_urls(result))
 
@@ -143,6 +144,7 @@ def test_spectrum_fallback(live_client):
     res = live_client.get("/api/v1/spectrum", params={"ra": 10.0, "dec": 41.0})
     job = live_client.get(f'/api/v1/jobs/{res.json()["job_id"]}').json()
     assert job["status"] == "completed" and job["result"]["fallback"] is True
+    assert job["result"]["fallback_reason"] == "irsa_unavailable"
 
 
 def test_other_errors_still_fail_the_job_without_500(live_client):
@@ -159,6 +161,7 @@ def test_other_errors_still_fail_the_job_without_500(live_client):
 def test_epochs_for_cached_target_are_instant(live_client):
     body = live_client.get("/api/v1/epochs", params=WISE_SEXA).json()
     assert body["is_cached_golden_path"] is True and body["fallback"] is False
+    assert body["fallback_reason"] is None
     assert [e["epoch_id"] for e in body["epochs"]] == [
         e["epoch_id"] for e in load_raw("wise_0855.json")["timelapse_epochs"]]
 
@@ -173,6 +176,7 @@ def test_epochs_live_and_fallback(live_client):
     live_client.runner.epochs_result = UpstreamUnavailable("IRSA SIA did not answer within 5 s")
     res = live_client.get("/api/v1/epochs", params={"ra": 10, "dec": 41})
     assert res.status_code == 200 and res.json()["fallback"] is True
+    assert res.json()["fallback_reason"] == "irsa_unavailable"
 
 
 def test_targets_lists_the_five_challenge_objects(live_client):

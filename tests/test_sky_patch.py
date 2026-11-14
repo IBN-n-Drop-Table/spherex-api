@@ -12,7 +12,7 @@ from app.schemas.sky_patch import SkyPatchResponse
 from tests.conftest import load_patch
 
 EXPECTED = load_patch("wise_0855.json")
-NOT_FOUND = {"detail": "Target not found in Golden Path cache. Try WISE_0855."}
+NOT_FOUND = {"detail": "Target not found in Golden Path cache. Try WISE_0855.", "code": "not_found", "errors": None}
 CACHED_FILES = sorted(p.name for p in settings.data_dir.glob("*.json"))
 
 
@@ -203,6 +203,7 @@ def test_full_queue_returns_503(live_client):
     res = live_client.get("/api/v1/sky-patch", params={"ra": 50.0, "dec": 5.0})
     assert res.status_code == 503
     assert res.headers["retry-after"] == "30"
+    assert res.json()["code"] == "service_unavailable" and isinstance(res.json()["detail"], str)
 
 
 # --------------------------------------------------------------------------- #

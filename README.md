@@ -76,6 +76,19 @@ Full, always up-to-date schema: **`/docs`**. A real response is in [`docs/contra
 | `POST` | `/api/v1/reports/{id}/verify` | Peer confirmation |
 | `GET` | `/health` | Service status |
 
+### Errors
+
+Every error, from every endpoint, has one shape:
+
+```json
+{"detail": "fov: Input should be less than or equal to 30", "code": "validation_error",
+ "errors": [{"loc": ["query", "fov"], "msg": "Input should be less than or equal to 30", "type": "less_than_equal"}]}
+```
+
+- `detail` is always a readable string. (Before 2026-11-14, FastAPI's own 422s put a list there.)
+- `code` is stable: `not_found` (404), `validation_error` (422), `service_unavailable` (503, with `Retry-After`), `method_not_allowed` (405), `internal_error` (500), or `http_<status>`.
+- `errors` lists the field problems of a 422 validation error, and is `null` otherwise.
+
 ### Coordinates, field of view, band
 
 - `ra` / `dec`: decimal degrees **or** sexagesimal: `ra=08h55m10.831s` (also `08:55:10.831`), `dec=-7d14m42.53s` (also `-07:14:42.53`). Bad input returns **422**.
@@ -104,8 +117,9 @@ Depending on the target or coordinates passed to these endpoints it can have dif
 
 What the frontend gets as a response from this endpoint (all image URLs absolute):
 
-- `timelapse_epochs[]`: **one entry per SPHEREx visit** (3 for Barnard's Star and WISE 0855), for a blink comparator. Same stretch in every epoch, so blinking is honest. `chemical_filters` has `H2O`, `CO2` and `CO` when that visit has exposures in the window.
-- `difference_imaging`: `epoch_a` (last visit) minus `epoch_b` (first visit): the longest baseline, so the most motion. `detected_anomalies[]` come with `kind` (`appeared`/`disappeared`), `contamination_flags`, `is_clean_detection`, and the labels `detection_label` ("Detección Asistida por Software (BETA)") and `detection_notice` ("requiere verificación humana").
+- `timelapse_epochs[]`: **one entry per SPHEREx visit** (3 for Barnard's Star and WISE 0855), for the blink comparator. Same stretch in every epoch, so blinking is honest. `chemical_filters` has `H2O`, `CO2`, `CO` when that visit has exposures in the window.
+- `difference_imaging`: `epoch_a` (last visit) minus `epoch_b` (first visit): the longest baseline, so the most motion (`kind: "first_vs_last"`). `detected_anomalies[]` come with `kind` (`appeared`/`disappeared`), `contamination_flags`, `is_clean_detection`, and the labels `detection_label` ("Detección Asistida por Software (BETA)") and `detection_notice` ("requiere verificación humana").
+- `difference_imaging.pairwise[]`: one difference per pair of **consecutive** visits, for the blink comparator. See [Epoch differences](#epoch-differences-first-vs-last-and-consecutive).
 - `spectrum_102_bands` (from `spectrum_epoch_id`) and `light_curve` (one point per visit). Where there is no valid photometry, `flux_mjy_sr` is `null` with a `note`, never 0.
 - `saturated` / `spectrum_message`: bright stars (Barnard's Star, R Draconis) saturate SPHEREx. Their cores are **shown** in the PNGs but **excluded** from the spectrum and light curve.
 - `fallback` / `fallback_message`: see [Offline-first fallback](#offline-first-fallback).
@@ -121,10 +135,27 @@ curl localhost:8000/api/v1/jobs/<job_id>
 # {"status": "running", "stage": "download", "progress": 0.41, "eta_s": 27, ...}
 ```
 
-- Poll every `retry_after_ms` (1500 ms). Stages: `queued` -> `query` -> `download` -> `stack` -> `render` -> `done` (or `failed`).
-- **A cold job takes tens of seconds to a few minutes:** each IRSA cutout takes ~12 s (it always carries a ~4 MB PSF table), and live mode downloads 1 cutout per detector and visit (~18). Test measures taken on 2026-11-14: 40-100 s for Barnard's Star.
-- The same query returns the same job. One job runs at a time; more than 8 queued returns **503** with `Retry-After: 30`.
-- Jobs live in memory (1 h after finishing). A restart forgets them, which is why the service runs a single uvicorn worker.
+- Cached targets come back **200** with `status: completed` and the `result` at once.
+- Poll every `retry_after_ms` (1500 ms). Stages: `queued` -> `query` -> `download` -> `stack` -> `render` -> `difference` (only with 3+ visits) -> `done` (or `failed`).
+- A live result has the same `pairwise` differences as the Golden Path, built from the same stacks: no extra downloads.
+- **A cold job takes tens of seconds to a few minutes**: each IRSA cutout takes ~12 s (it always carries a ~4 MB PSF table), and live mode downloads 1 cutout per detector and visit (~18). Measured on 2026-11-14: 40-100 s for Barnard's Star. The messages say so.
+- The same query returns the same job. One job runs at a time; more than 8 queued -> **503** `Retry-After: 30`.
+- Jobs live in memory (1 h after finishing). A restart forgets them, which is why the service runs 1 uvicorn worker.
+- The legacy `GET /sky-patch` / `GET /spectrum` 202 + `Location` flow still works.
+
+### Offline-first fallback
+
+IRSA gets **5 s** (`SIA_BUDGET_S`, retries included) to answer. On a timeout, 429 or 5xx, or when the server has no science stack, the job still **completes**: its result is the cached patch nearest to the requested position, with
+
+```json
+"fallback": true,
+"fallback_message": "Mostrando datos en caché debido a alta latencia en servidores de origen. ...",
+"fallback_reason": "irsa_unavailable"
+```
+
+`fallback_reason` is the machine-readable cause, on sky patches, spectra and `/epochs`: `irsa_unavailable` (IRSA timed out, throttled or answered 5xx), `live_processing_unavailable` (this server has no science stack), or `unknown`. It is `null` when `fallback` is false. Branch on it, show `fallback_message`.
+
+`target_info.name` says which cached object is shown. A failure caused by IRSA never produces a 500. A position IRSA answers for but SPHEREx hasn't covered twice yet ends as `status: failed` with a readable `error`.
 
 ### `GET /api/v1/epochs?ra=..&dec=..`
 
@@ -178,7 +209,9 @@ curl -X POST localhost:8000/api/v1/reports/<id>/verify
 
 `GET /health` shows the store in use (`"reports_backend": "supabase"` or `"memory"`). If the variables are unset, the table is missing or Supabase can't be reached, the API logs a warning and uses an in-memory store that starts with 2 sample discoveries (WISE 0855 and Barnard's Star). If Supabase fails during a demo, the API switches to memory and stays there until restart, so the feed doesn't jump between two stores. Reports kept in memory are lost on restart.
 
-Database rules: anyone can read and submit reports; clients cannot set `id`, `created_at` or `verifications_count`; nobody can update or delete rows through the API. `verify_citizen_report()` increments the counter atomically. Verification is anonymous, so one person can confirm a report more than once. Fixing that needs user accounts (Supabase Auth plus a `report_verifications` table).
+`GET /health` shows the store in use (`"reports_backend": "supabase"` or `"memory"`).
+If the variables are unset, the table is missing or Supabase can't be reached, the API logs a warning and uses an in-memory store. That store starts **empty**. With `REPORTS_DEMO_SEED=1` it starts with 2 demo examples (WISE 0855 and Barnard's Star) by `ejemplo_demo`, flagged `is_example: true` and prefixed `[EJEMPLO]`: label them in the UI, they are not real citizen reports. Supabase rows always have `is_example: false`.
+If Supabase fails during the demo, the API switches to memory and stays there until restart, so the feed doesn't jump between two stores. Reports kept in memory are lost on restart.
 
 ---
 
@@ -297,7 +330,26 @@ python scripts/generate_golden_path.py --all
 
 With `--storage local` (the default), PNGs go to `app/static/golden_path/` and are **committed to the repo**. The JSON stores relative paths and the API prepends its public base (`PUBLIC_BASE`, or the request host). With `--storage supabase` the pipeline uploads straight to the bucket (it must already exist and be public; needs `SUPABASE_URL`, a `SUPABASE_KEY` with Storage write access, and `SUPABASE_BUCKET`).
 
-Downloaded cutouts are kept in astropy's download cache (`~/.astropy/cache`), so a re-run only reprocesses them. To download them again, pass `--no-cache`. For all options run `--help` (`--fov`, `--png-size`, `--workers`, `--epoch-strategy`, `--epoch-gap-days`, `--min-exposures`, `--snr-threshold`, `--max-anomalies`, `--dedup-radius-px`, `--aperture-px`, `--annulus-px`, `--sia-budget-s`, ...).
+```bash
+export SUPABASE_URL="https://<project>.supabase.co"
+export SUPABASE_KEY="<service-role key>"   # needs write access to Storage
+export SUPABASE_BUCKET="spherex-golden-path"
+python scripts/generate_golden_path.py --all --storage supabase
+```
+
+Downloaded cutouts are stored in astropy's download cache (`~/.cache/astropy` with astropy 7+, `~/.astropy/cache` before), so a re-run only reprocesses them and downloads only what is missing; it logs `Cutouts: N/M already in the astropy cache`. SIA answers are kept in `cache/sia/` (git-ignored). To download everything again, pass `--no-cache`. For all options, run `--help`.
+
+```bash
+# Cache only, no network at all (fails with a clear message if a SIA answer
+# or a cutout is missing). Same as CACHE_ONLY=1.
+python scripts/generate_golden_path.py --all --offline
+# ...or leave uncached cutouts out instead of failing (what a failed download does)
+python scripts/generate_golden_path.py --all --offline --skip-missing
+# Write JSON + PNGs to a staging directory instead of the repo, to compare first
+python scripts/generate_golden_path.py --all --offline --skip-missing --output-root /tmp/stage
+```
+
+With every cutout cached, `--all` takes about 70 s (measured 2026-11-14, 1,944 cutouts).
 
 ### What it does
 
@@ -307,16 +359,13 @@ Downloaded cutouts are kept in astropy's download cache (`~/.astropy/cache`), so
 4. **Cleans each exposure.** It computes `IMAGE - ZODI` and masks artifact-flagged pixels. Saturated pixels (`OVERFLOW`/`BLOOM`) are kept in a separate **display-only** copy: the PNGs show bright stars, while photometry, spectra, light curves and detection never use them. It evaluates the spectral WCS at the target, measures aperture photometry and reprojects onto a north-up, square-pixel TAN grid centred on the target's epoch-1 position (50 x 50 px of 6.0" for 5'; the 600 px PNGs are an exact 12x upscale).
 5. **Corrects for proper motion.** The target's position is propagated to each exposure's date using the astrometry in `app/core/targets.py`. Without this, Barnard's Star and WISE 0855 would land several arcminutes from the centre of a 5' field.
 6. **Builds the products.**
-   - RGB image: B = detectors 1-2, G = 3-4, R = 5-6.
-   - H2O (1.4-1.9 and 2.6-2.8 um), CO2 (4.2-4.4 um) and CO (4.60-4.74 um) filter images.
-   - Difference image (subtracts the first epoch to the second one in each pair of consecutive epochs), always subtracting each detector from the same detector.
-   - Anomalies found with OpenCV on the SNR map; detections within `--dedup-radius-px` (12) are merged and each gets its own 102-band spectrum.
-   - A 6 x 17 = 102-channel LVF spectrum, combined with inverse-variance weighting.
-   - A light curve with one point per visit; no valid photometry gives `null` plus a `note`, never 0.
-
-   All epochs use the same display stretch, so a brightness change shows up in the images and a saturated core clips to white.
-
-### After changing the JSON contract
+   - RGB image: B = detectors 1–2, G = 3–4, R = 5–6.
+   - H₂O (1.4–1.9 and 2.6–2.8 µm), CO₂ (4.2–4.4 µm) and CO (4.60–4.74 µm) filter images.
+   - Difference image (last − first visit). Each detector's coadd is only ever subtracted from the same detector's coadd, because each detector sees different wavelengths.
+   - Consecutive-visit differences (`pairwise`), from the same per-visit stacks: no re-stacking, no anomaly detection.
+   - Anomalies found with OpenCV on the (first vs last) difference image's SNR map. Detections within `--dedup-radius-px` (12) PNG px are merged, and each remaining anomaly gets its own 102-band spectrum.
+   - A 6 × 17 = 102-channel LVF spectrum, combined with inverse-variance weighting.
+   - A light curve with one point per visit, averaged over the channels every visit shares. No valid photometry gives `null` plus a `note`, never 0.
 
 The API validates every `app/data/*.json` file at startup and refuses to start if one is out of date. Regenerate the files (the astropy cache makes this quick when the cutouts are already downloaded), then publish again if you use Supabase:
 
@@ -340,6 +389,34 @@ python scripts/setup_supabase.py      # optional: mirror the PNGs to Supabase
 **Formats.** `image_format` (`"png"` or `"fits"`) is set on each timelapse epoch (it also applies to that epoch's `chemical_filters`) and on `difference_imaging`. Everything cached is `png` today.
 
 **Difference image.** `subtracted = epoch_a - epoch_b` = last visit - first visit. Red means brighter in `epoch_a`, blue brighter in `epoch_b`.
+
+### Epoch differences: first vs last, and consecutive
+
+`difference_imaging` holds two kinds of difference image. Both are `later − earlier` (red = brighter in the later visit, blue = fainter, black = no data) and share the patch geometry.
+
+| | `difference_imaging` itself | each item of `difference_imaging.pairwise[]` |
+|---|---|---|
+| `kind` | `"first_vs_last"` | `"consecutive"` |
+| visits | first and last | visit *i* and *i + 1*, in time order |
+| detectors | every detector both visits share | detectors both visits share with ≥ 5 frames in each (a median of 3 frames doesn't reject artefacts); if none qualifies, every shared one |
+| colour scale | 99.5th percentile of \|difference\| (unchanged) | ± 5 σ of the background, saturated/masked pixels excluded, after removing a smooth sky (60″ blocks, sources masked) |
+| anomaly detection | yes (`detected_anomalies`) | **no**: fixed stars leave 6–14 % residuals that would show up as false anomalies |
+
+Fields on both: `epoch_a` (later), `epoch_b` (earlier), `delta_t_days`, `detectors_used`, `expected_shift_arcsec` (catalogue proper motion × Δt) and `weak_signal`. `weak_signal: true` means that expected shift is below one native SPHEREx pixel (6.15″): a dipole, if any, is faint, and the UI should say so. Every consecutive pair of the 5 challenge targets is `weak_signal: true` (2–6″ in ~6 months); only first-vs-last reaches 6.6–10.2″ for the fast movers. `pairwise` is `[]` with fewer than 3 visits, because the only pair is then the first-vs-last one.
+
+**Picking the image for the blink comparator.** For the two epochs on screen, look in `pairwise` for the item whose `{epoch_a, epoch_b}` is that pair. If there isn't one, and the pair is the first and last visit, use `difference_imaging` itself. Any other pair (e.g. visit 1 vs visit 3 of 4) has no image: offer the closest consecutive pair or first-vs-last.
+
+```js
+function diffFor(d, e1, e2) {
+  const want = new Set([e1, e2]);
+  const hit = (d.pairwise ?? []).find(p => want.has(p.epoch_a) && want.has(p.epoch_b));
+  if (hit) return hit;
+  if (want.has(d.epoch_a) && want.has(d.epoch_b)) return d; // first_vs_last
+  return null;
+}
+```
+
+Read the pair images knowing what the targets are: Barnard's Star and Epsilon Indi B show a clear dipole in every pair; WISE 0855 is lost next to a field star in these broadband differences; RW Aurigae and R Draconis have no motion, and what changes is their (saturated) brightness.
 
 **Anomalies.**
 - Every detection has its own `spectrum_102_bands`, measured in `spectrum_epoch_id`: `epoch_a` if the source brightened, `epoch_b` if it faded.

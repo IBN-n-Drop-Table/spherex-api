@@ -31,6 +31,7 @@ Run `python scripts/generate_golden_path.py --help` for options.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import http.client
 import io
 import json
@@ -60,7 +61,8 @@ from astropy.nddata.utils import NoOverlapError
 from astropy.stats import sigma_clipped_stats
 from astropy.table import Table, unique, vstack
 from astropy.time import Time
-from astropy.utils.data import conf
+from astropy.config.paths import get_cache_dir
+from astropy.utils.data import conf, is_url_in_cache
 from astropy.visualization import AsinhStretch, ZScaleInterval
 from astropy.io.votable import parse_single_table
 from astropy.wcs import WCS, FITSFixedWarning
@@ -103,6 +105,9 @@ RETRYABLE_ERRORS = (
 )
 
 PIXEL_SCALE_ARCSEC = 6.15  # SPHEREx native plate scale
+PAIR_SCALE_SIGMA = 5.0  # pairwise difference PNGs saturate at +/- 5 background sigma
+PAIR_SKY_BOX_PX = 10  # smooth-sky removal on pairwise differences: 10 grid px = 60" at 5'
+PAIR_MIN_PER_DETECTOR = 5  # pairwise: a detector needs >= 5 frames in both visits (see pair_detectors)
 
 # LVF band edges per detector (um). 6 detectors x 17 channels = 102.
 LVF_BANDS: dict[int, tuple[float, float]] = {
@@ -143,6 +148,7 @@ DEFAULT_FLAG_BITS = {0: "TRANSIENT", 19: "OUTLIER", 21: "SOURCE", 26: "BLOOM", 2
 
 
 IRSA_SIA_URL = "https://irsa.ipac.caltech.edu/SIA"
+SIA_CACHE_DIR = REPO_ROOT / "cache" / "sia"  # git-ignored; filled by cached (non-live) runs
 RETRY_STATUS = {429, 500, 502, 503, 504}
 
 
@@ -173,9 +179,11 @@ class LocalStorage(StorageUploader):
     Returns a path RELATIVE to the API ('/static/...'); the API prepends its
     public base when serving (app/core/urls.py)."""
 
-    def __init__(self, url_path: str = "golden_path") -> None:
+    def __init__(self, url_path: str = "golden_path", root: Path | None = None) -> None:
+        """`root`: write under <root>/app/static/ instead of the repo (staging runs);
+        the returned URLs are the same either way."""
         self.url_path = url_path.strip("/")
-        self.directory = REPO_ROOT / "app" / "static" / self.url_path
+        self.directory = (root or REPO_ROOT) / "app" / "static" / self.url_path
         self.directory.mkdir(parents=True, exist_ok=True)
 
     def upload_png(self, filename: str, data: bytes) -> str:
@@ -208,8 +216,8 @@ class SupabaseStorage(StorageUploader):
         return self.bucket.get_public_url(path).rstrip("?")
 
 
-def make_uploader(kind: str) -> StorageUploader:
-    return SupabaseStorage() if kind == "supabase" else LocalStorage()
+def make_uploader(kind: str, root: Path | None = None) -> StorageUploader:
+    return SupabaseStorage() if kind == "supabase" else LocalStorage(root=root)
 
 
 # --------------------------------------------------------------------------- #
@@ -237,16 +245,41 @@ def with_retry(fn, what: str, attempts: int = 3, base_delay: float = 5.0):
             time.sleep(delay)
 
 
-def sia_http(coord: SkyCoord, collections: list[str], budget_s: float) -> Table:
+class CacheMiss(RuntimeError):
+    """--offline: something the run needs is not in the local cache."""
+
+
+def _sia_cache_file(params: list[tuple[str, str]]) -> Path:
+    digest = hashlib.sha1(repr(params).encode()).hexdigest()[:20]
+    return SIA_CACHE_DIR / f"sia_{digest}.xml"
+
+
+def _parse_votable(content: bytes) -> Table:
+    return parse_single_table(io.BytesIO(content)).to_table(use_names_over_ids=True)
+
+
+def sia_http(coord: SkyCoord, collections: list[str], budget_s: float,
+             cache: bool = False, offline: bool = False) -> Table:
     """SIA2 query straight over HTTP, retried until `budget_s` runs out.
 
     Why not Irsa.query_sia: pyvo first GETs /SIA/capabilities, and on
     2026-11-14 that endpoint answered 502 about half the time while the query
     endpoint itself worked. Raises IrsaUnavailable when the budget is spent.
+
+    `cache`: keep the raw answer under cache/sia/ (git-ignored) so a later
+    `offline` run can replay it without the network. `offline`: answer only
+    from that file; raises CacheMiss if it isn't there.
     """
     params = [("COLLECTION", c) for c in collections]
     params += [("POS", f"circle {coord.ra.deg:.7f} {coord.dec.deg:.7f} {1 / 3600:.7f}"),
                ("RESPONSEFORMAT", "VOTABLE")]
+    cache_file = _sia_cache_file(params)
+    if offline:
+        if not cache_file.is_file():
+            raise CacheMiss(f"--offline: no cached SIA answer for {', '.join(collections)} at "
+                            f"{coord.ra.deg:.5f} {coord.dec.deg:+.5f} ({cache_file.name}). "
+                            "Run once without --offline to fetch it.")
+        return _parse_votable(cache_file.read_bytes())
     deadline = time.monotonic() + budget_s
     attempt, last = 0, "no answer"
     while True:
@@ -257,7 +290,13 @@ def sia_http(coord: SkyCoord, collections: list[str], budget_s: float) -> Table:
         try:
             r = requests.get(IRSA_SIA_URL, params=params, timeout=max(0.5, remaining))
             if r.status_code == 200 and b"<VOTABLE" in r.content[:2000]:
-                return parse_single_table(io.BytesIO(r.content)).to_table(use_names_over_ids=True)
+                if cache:
+                    try:
+                        cache_file.parent.mkdir(parents=True, exist_ok=True)
+                        cache_file.write_bytes(r.content)
+                    except OSError as exc:  # caching is a convenience, never fatal
+                        log.warning("could not cache SIA answer: %s", exc)
+                return _parse_votable(r.content)
             last = f"HTTP {r.status_code}"
             if r.status_code not in RETRY_STATUS and r.status_code != 200:
                 raise IrsaUnavailable(f"IRSA SIA answered {last}")
@@ -268,8 +307,9 @@ def sia_http(coord: SkyCoord, collections: list[str], budget_s: float) -> Table:
         time.sleep(delay)
 
 
-def query_sia(coord: SkyCoord, collections: list[str], budget_s: float = 120.0) -> Table:
-    rows = sia_http(coord, collections, budget_s)
+def query_sia(coord: SkyCoord, collections: list[str], budget_s: float = 120.0,
+              cache: bool = False, offline: bool = False) -> Table:
+    rows = sia_http(coord, collections, budget_s, cache=cache, offline=offline)
     if len(rows) and "dataproduct_subtype" in rows.colnames:
         rows = rows[rows["dataproduct_subtype"] == "science"]
     return rows
@@ -323,12 +363,13 @@ def pick_epochs(groups: list[Table], strategy: str, min_rows: int) -> list[Table
 def find_epoch_rows(target: Target, args) -> list[Table]:
     conf.remote_timeout = args.download_timeout
     coord = position_at(target, Time("2026-01-01T00:00:00", scale="utc"))
-    rows = dedupe(query_sia(coord, WIDE_COLLECTIONS, args.sia_budget_s), WIDE_COLLECTIONS)
+    sia = {"cache": not args.no_cache, "offline": args.offline}
+    rows = dedupe(query_sia(coord, WIDE_COLLECTIONS, args.sia_budget_s, **sia), WIDE_COLLECTIONS)
     log.info("SIA wide survey: %d exposures", len(rows))
     visits = pick_epochs(group_epochs(rows, args.epoch_gap_days), args.epoch_strategy, args.min_exposures)
     if visits is None:
         log.info("Wide coverage sparse; adding deep-field collections")
-        deep = query_sia(coord, DEEP_COLLECTIONS, args.sia_budget_s)
+        deep = query_sia(coord, DEEP_COLLECTIONS, args.sia_budget_s, **sia)
         if len(deep):
             rows = dedupe(vstack([rows, deep]) if len(rows) else deep,
                           WIDE_COLLECTIONS + DEEP_COLLECTIONS)
@@ -461,12 +502,38 @@ def aperture_photometry(
     return flux, variance
 
 
-def process_row(row, target: Target, ref_wcs: WCS, ref_shape: tuple[int, int], args) -> Exposure | None:
+def cutout_request(row, target: Target, fov_arcmin: float) -> tuple[str, SkyCoord]:
+    """(IRSA cutout URL, target position at the exposure date). The URL is also
+    the astropy download-cache key, so it must stay byte-for-byte stable."""
     when = Time(float(row["t_min"]), format="mjd", scale="utc")
     coord = position_at(target, when)
-    support_arcmin = args.fov * math.sqrt(2) + 1.5  # covers a rotated fov + annulus
+    support_arcmin = fov_arcmin * math.sqrt(2) + 1.5  # covers a rotated fov + annulus
     url = (f"{row['access_url']}?center={coord.ra.deg:.6f},{coord.dec.deg:.6f}"
            f"&size={support_arcmin / 60:.4f}")
+    return url, coord
+
+
+def check_cutout_cache(visits: list[Table], target: Target, args) -> tuple[list[Table], int, int]:
+    """(visits, cached, total). With --offline, missing cutouts raise CacheMiss,
+    unless --skip-missing drops them (same as a download that failed)."""
+    total = sum(len(v) for v in visits)
+    if args.no_cache:
+        return visits, 0, total
+    keep = [np.array([is_url_in_cache(cutout_request(row, target, args.fov)[0]) for row in v], bool)
+            for v in visits]
+    missing = total - int(sum(k.sum() for k in keep))
+    if missing and args.offline:
+        if not args.skip_missing:
+            raise CacheMiss(f"--offline: {missing}/{total} cutouts of {target.name} are not in the "
+                            f"astropy cache ({get_cache_dir()}). Run without --offline to download "
+                            "only the missing ones, or add --skip-missing to leave them out.")
+        log.warning("--offline --skip-missing: leaving out %d uncached cutout(s)", missing)
+        visits = [v[k] for v, k in zip(visits, keep)]
+    return visits, total - missing, total
+
+
+def process_row(row, target: Target, ref_wcs: WCS, ref_shape: tuple[int, int], args) -> Exposure | None:
+    url, coord = cutout_request(row, target, args.fov)
 
     with open_fits_with_retry(url, use_cache=not args.no_cache, base_delay=args.retry_base_delay) as hdulist:
         header = hdulist["IMAGE"].header
@@ -760,13 +827,136 @@ def render_cmap(img: np.ndarray, limits: tuple[float, float], cmap, size: int) -
     return to_png(rgba[..., :3], size)
 
 
-def render_difference(diff: np.ndarray, size: int) -> bytes:
-    finite = diff[np.isfinite(diff)]
-    lim = float(np.percentile(np.abs(finite), 99.5)) if finite.size else 1.0
+def render_difference(diff: np.ndarray, size: int, lim: float | None = None) -> bytes:
+    """Red = brighter in the later epoch, blue = fainter, black = no data.
+
+    `lim` (colour saturation, MJy/sr): default = 99.5th percentile of |diff|,
+    the first-vs-last rendering. Pairwise images pass a background-based limit."""
+    if lim is None:
+        finite = diff[np.isfinite(diff)]
+        lim = float(np.percentile(np.abs(finite), 99.5)) if finite.size else 1.0
     lim = lim or 1.0
     rgba = colormaps["RdBu_r"]((np.clip(diff / lim, -1, 1) + 1) / 2)
     rgba[~np.isfinite(diff)] = (0, 0, 0, 1)
     return to_png(rgba[..., :3], size)
+
+
+def background_sigma(diff: np.ndarray) -> float | None:
+    """Robust (3-sigma-clipped) std of a difference image. Saturated and masked
+    pixels are NaN in the clean stacks, so they never enter it."""
+    finite = diff[np.isfinite(diff)]
+    if finite.size < 10:
+        return None
+    std = float(sigma_clipped_stats(finite, sigma=3.0)[2])
+    return std if std > 0 and math.isfinite(std) else None
+
+
+def sky_background(diff: np.ndarray, stacks: list[np.ndarray], box: int = PAIR_SKY_BOX_PX) -> np.ndarray:
+    """Smooth sky left in a difference (zodi/scattered-light gradients).
+
+    Median of `box`-px blocks after masking every source of either epoch (> 3
+    sigma, dilated 2 px, so star wings and haloes stay out of it), bilinearly
+    interpolated back. `box` (60" at 5') is far larger than the PSF (~2 px), so
+    point sources and dipoles are untouched."""
+    mask = ~np.isfinite(diff)
+    for img in stacks:
+        finite = img[np.isfinite(img)]
+        if finite.size < 10:
+            continue
+        _, med, std = sigma_clipped_stats(finite, sigma=3.0)
+        if std > 0:
+            mask |= np.nan_to_num(np.abs(img - med) / std, nan=0.0) > 3
+    mask = cv2.dilate(mask.astype(np.uint8), np.ones((5, 5), np.uint8)).astype(bool)
+    work = np.where(mask, np.nan, diff)
+    n_y, n_x = diff.shape
+    ny, nx = max(1, round(n_y / box)), max(1, round(n_x / box))
+    nodes = np.full((ny, nx), np.nan)
+    for j in range(ny):
+        for i in range(nx):
+            blk = work[j * n_y // ny:(j + 1) * n_y // ny, i * n_x // nx:(i + 1) * n_x // nx]
+            if np.isfinite(blk).sum() >= blk.size / 4:
+                nodes[j, i] = np.nanmedian(blk)
+    if not np.isfinite(nodes).any():
+        return np.zeros_like(diff)
+    nodes = np.where(np.isfinite(nodes), nodes, np.nanmedian(nodes))
+    return cv2.resize(nodes.astype(np.float32), (n_x, n_y), interpolation=cv2.INTER_LINEAR).astype(np.float64)
+
+
+# --------------------------------------------------------------------------- #
+# Epoch differences
+# --------------------------------------------------------------------------- #
+def expected_shift_arcsec(target: Target, t_from: datetime, t_to: datetime) -> float:
+    """How far the target moves between two dates (catalogue proper motion)."""
+    a = position_at(target, Time(t_from))
+    b = position_at(target, Time(t_to))
+    return float(a.separation(b).arcsec)
+
+
+def difference_meta(target: Target, earlier: EpochProduct, later: EpochProduct,
+                    detectors: list[int]) -> dict:
+    """Metadata shared by the first-vs-last difference and every pairwise one."""
+    shift = expected_shift_arcsec(target, earlier.when, later.when)
+    return {
+        "delta_t_days": round((later.when - earlier.when).total_seconds() / 86400.0, 2),
+        "detectors_used": list(detectors),
+        "expected_shift_arcsec": round(shift, 2),
+        "weak_signal": shift < PIXEL_SCALE_ARCSEC,
+    }
+
+
+def pair_detectors(earlier: EpochProduct, later: EpochProduct) -> list[int]:
+    """Detectors both visits share, keeping only those with at least
+    PAIR_MIN_PER_DETECTOR exposures in each: a median of 3 frames does not reject
+    artefacts (measured: Epsilon Indi B M0 has 3 detector-1 frames and that
+    detector's difference is 18x noisier than its formal error). If none
+    qualifies (live jobs take 1 frame per detector), every shared detector is used."""
+    shared = sorted(set(earlier.detector_stacks) & set(later.detector_stacks))
+
+    def count(ep: EpochProduct, det: int) -> int:
+        return sum(e.detector == det for e in ep.exposures)
+
+    deep = [d for d in shared if min(count(earlier, d), count(later, d)) >= PAIR_MIN_PER_DETECTOR]
+    return deep or shared
+
+
+def pairwise_differences(epochs: list[EpochProduct], target: Target, uploader: StorageUploader,
+                         slug: str, size: int) -> list[dict]:
+    """Consecutive-visit differences (later - earlier), from the per-epoch stacks
+    already built: no re-stacking, no downloads, no anomaly detection.
+
+    Each pair uses the detectors THOSE two visits share (pair_detectors). A smooth sky
+    (sky_background) is removed, then the colour scale is +/- PAIR_SCALE_SIGMA x
+    the robust background sigma of the clean difference (saturated/masked
+    pixels excluded), so the field never washes out to white.
+    With fewer than 3 visits the only pair is the first-vs-last one: empty list.
+    """
+    if len(epochs) < 3:
+        return []
+    out = []
+    for i in range(len(epochs) - 1):
+        earlier, later = epochs[i], epochs[i + 1]
+        dets = pair_detectors(earlier, later)
+        if not dets:
+            log.warning("[%s vs %s] no shared detector; pair skipped", later.epoch_id, earlier.epoch_id)
+            continue
+        before, after = earlier.stack_of(dets)[0], later.stack_of(dets)[0]
+        sky = sky_background(after - before, [before, after])
+        clean = after - before - sky
+        shown = later.stack_of(dets, display=True)[0] - earlier.stack_of(dets, display=True)[0] - sky
+        sigma = background_sigma(clean)
+        lim = PAIR_SCALE_SIGMA * sigma if sigma else None
+        name = f"{slug}_diff_epoch{i + 1}_epoch{i + 2}.png"
+        out.append({
+            "kind": "consecutive",
+            "epoch_a": later.epoch_id,
+            "epoch_b": earlier.epoch_id,
+            "image_format": "png",
+            "subtracted_image_url": uploader.upload_png(name, render_difference(shown, size, lim)),
+            **difference_meta(target, earlier, later, dets),
+        })
+        log.info("Pair %s - %s: detectors %s, background sigma %.4g MJy/sr", later.epoch_id,
+                 earlier.epoch_id, dets, sigma or float("nan"))
+    return out
 
 
 # --------------------------------------------------------------------------- #
@@ -923,7 +1113,11 @@ def build_payload(target: Target, uploader: StorageUploader, args, cached: bool 
     times, ids = visit_ids(visits)  # from the FULL visits, so /epochs and sky-patch agree
     visits = [subsample_per_detector(subsample(v, args.max_exposures_per_epoch), args.max_per_detector)
               for v in visits]
+    visits, n_cached, n_listed = check_cutout_cache(visits, target, args)
     n_cutouts = sum(len(v) for v in visits)
+    if not args.no_cache:
+        log.info("Cutouts: %d/%d already in the astropy cache, %d to download",
+                 n_cached, n_listed, n_cutouts - n_cached)
     eta = round(math.ceil(n_cutouts / max(args.workers, 1)) * args.seconds_per_cutout + 10)
     progress("download", 0.05,
              f"{len(visits)} visitas de SPHEREx encontradas. Descargando {n_cutouts} recortes de IRSA "
@@ -989,6 +1183,9 @@ def build_payload(target: Target, uploader: StorageUploader, args, cached: bool 
     diff_url = uploader.upload_png(f"{slug}_diff.png", render_difference(diff_display, size))
     anomalies = detect_anomalies(diff, diff_var, e1, e2, ref_wcs, args)
     log.info("Difference imaging: %d anomalies above %.1f sigma", len(anomalies), args.snr_threshold)
+    if len(epochs) >= 3:
+        progress("difference", 0.95, "Calculando restas entre épocas consecutivas...")
+    pairwise = pairwise_differences(epochs, target, uploader, slug, size)
 
     specs = [binned_spectrum(target_samples(e.exposures)) for e in epochs]
     common_channels = set.intersection(*(set(sp) for sp in specs if sp)) if any(specs) else set()
@@ -1005,7 +1202,8 @@ def build_payload(target: Target, uploader: StorageUploader, args, cached: bool 
     log.info("Spectrum: %d/102 channels (visit %s); %d channels shared by all visits; saturated=%s",
              len(spectrum), epochs[best].epoch_id, len(common_channels), saturated)
 
-    progress("render", 0.99, "Listo.")
+    # Keep the last stage reached, so a polling client never sees it go backwards.
+    progress("difference" if len(epochs) >= 3 else "render", 0.99, "Listo.")
     return {
         "target_info": {
             "name": target.name,
@@ -1028,6 +1226,9 @@ def build_payload(target: Target, uploader: StorageUploader, args, cached: bool 
             "detected_anomalies": anomalies,
             "detection_label": DETECTION_LABEL,
             "detection_notice": DETECTION_NOTICE,
+            "kind": "first_vs_last",
+            **difference_meta(target, e1, e2, common_dets),
+            "pairwise": pairwise,
         },
         "spectrum_102_bands": spectrum,
         "spectrum_epoch_id": epochs[best].epoch_id,
@@ -1040,10 +1241,11 @@ def build_payload(target: Target, uploader: StorageUploader, args, cached: bool 
 def generate_target(target: Target, uploader: StorageUploader, args) -> Path:
     t0 = time.monotonic()
     model = SkyPatchResponse.model_validate(to_internal(build_payload(target, uploader, args)))
-    out_path = REPO_ROOT / "app" / "data" / target.data_file
+    out_path = (args.output_root or REPO_ROOT) / "app" / "data" / target.data_file
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     payload = to_relative(model.model_dump(mode="json"))  # relative image paths on disk
     out_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", "utf-8")
-    log.info("Wrote %s in %.0fs", out_path.relative_to(REPO_ROOT), time.monotonic() - t0)
+    log.info("Wrote %s in %.0fs", out_path, time.monotonic() - t0)
     return out_path
 
 
@@ -1084,6 +1286,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--aperture-px", type=float, default=1.5, help="photometry aperture radius (native px)")
     p.add_argument("--annulus-px", type=float, nargs=2, default=(4.0, 7.0), metavar=("R_IN", "R_OUT"))
     p.add_argument("--no-cache", action="store_true", help="don't reuse astropy's download cache")
+    p.add_argument("--offline", action="store_true", default=os.getenv("CACHE_ONLY") == "1",
+                   help="use only cached SIA answers (cache/sia/) and cached cutouts (astropy cache); "
+                        "fail with a clear message if anything is missing. Also: CACHE_ONLY=1")
+    p.add_argument("--skip-missing", action="store_true",
+                   help="with --offline: leave uncached cutouts out (logged) instead of failing")
+    p.add_argument("--output-root", type=Path, default=None,
+                   help="write app/data/*.json and app/static/golden_path/*.png under this directory "
+                        "instead of the repo (staging; image URLs are unchanged)")
     p.add_argument("-v", "--verbose", action="store_true")
     return p.parse_args(argv)
 
@@ -1109,7 +1319,12 @@ def main(argv: list[str] | None = None) -> int:
                         format="%(asctime)s %(levelname)-7s %(message)s", datefmt="%H:%M:%S")
     quiet_astropy()
 
-    uploader = make_uploader(args.storage)
+    if args.offline and args.no_cache:
+        log.error("--offline needs the cache: drop --no-cache")
+        return 2
+    if args.offline:
+        conf.allow_internet = False  # belt and braces: astropy must not reach the network
+    uploader = make_uploader(args.storage, args.output_root)
     keys = list(CATALOG) if args.all else args.target
     failed = []
     for key in keys:

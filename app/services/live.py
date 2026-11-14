@@ -138,6 +138,7 @@ class PipelineLiveRunner:
             download_timeout=60.0,
             seconds_per_cutout=settings.cutout_seconds_estimate,
             no_cache=True,  # ephemeral disk on free hosting: don't let the cutout cache grow
+            offline=False,  # live jobs always go to IRSA (CACHE_ONLY is for the offline generator)
         )
 
     def _payload(self, target: Target, fov_arcmin: float, job_id: UUID, progress: ProgressFn | None) -> dict:

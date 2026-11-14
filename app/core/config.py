@@ -41,6 +41,8 @@ class Settings:
         default_factory=lambda: float(os.getenv("SUPABASE_TIMEOUT_S", "5"))
     )
     reports_table: str = "citizen_reports"
+    # In-memory store only: start the feed with 2 labelled demo examples (is_example: true).
+    reports_demo_seed: bool = field(default_factory=lambda: os.getenv("REPORTS_DEMO_SEED") == "1")
 
     # Live (out-of-cache) processing: scripts/generate_golden_path.py run as a
     # background job. Needs requirements-science.txt; without it jobs fail

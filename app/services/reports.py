@@ -2,7 +2,8 @@
 
 `ReportService` is what the router talks to. It uses Supabase when
 SUPABASE_URL / SUPABASE_KEY are set and the table answers. Otherwise it uses
-an in-memory store seeded with sample discoveries. If Supabase fails mid-demo,
+an in-memory store, empty unless REPORTS_DEMO_SEED=1 adds two demo examples
+(flagged `is_example: true`, never mixed up with real reports). If Supabase fails mid-demo,
 the service logs a warning and stays on memory until the process restarts, so
 the feed never flips between two stores. Reports written to memory are lost
 on restart.
@@ -46,40 +47,49 @@ class ReportRepository(Protocol):
 # --------------------------------------------------------------------------- #
 
 
+EXAMPLE_HANDLE = "ejemplo_demo"
+EXAMPLE_PREFIX = "[EJEMPLO] "
+
+
 def _seed_reports() -> list[CitizenReport]:
+    """Demo examples, NOT real citizen reports: only loaded with REPORTS_DEMO_SEED=1,
+    flagged `is_example: true`, and written from what the data actually shows."""
     wise, barnard = CATALOG["WISE_0855"], CATALOG["BARNARDS_STAR"]
     return [
         CitizenReport(
             id=UUID("5e1f0855-0000-4000-8000-000000000001"),
             created_at=datetime(2026, 11, 13, 21, 4, tzinfo=UTC),
-            discoverer="cosmic_ana",
-            notes=(
-                "Faint red source at the patch centre, about 2 arcmin west of the 2010 catalogue "
-                "position: the ~8 arcsec/yr proper motion of the coldest known brown dwarf."
+            discoverer=EXAMPLE_HANDLE,
+            notes=EXAMPLE_PREFIX + (
+                "WISE 0855 sits at the patch centre in the first visit (May 2025), about 2 arcmin "
+                "west of its 2010 catalogue position. Its ~8 arcsec/yr motion shows at 4.4-5 um "
+                "(detector 6); in the broadband difference it blends with a field star."
             ),
-            # Epoch-1 (Nov 2025) position = patch centre; see wise_0855.json patch.wcs.
-            ra_deg=133.760005,
-            dec_deg=-7.242258,
+            # Patch centre = position at the epoch-1 date (2025-05-06); see wise_0855.json patch.wcs.
+            ra_deg=133.761159,
+            dec_deg=-7.242353,
             target_name=wise.name,
             pixel_x=300,
             pixel_y=300,
             classification=Classification.BROWN_DWARF,
-            snapshot_url="http://localhost:8000/static/golden_path/wise0855_diff.png",
-            verifications_count=4,
+            verifications_count=1,
+            is_example=True,
         ),
         CitizenReport(
             id=UUID("5e1fba2d-0000-4000-8000-000000000002"),
             created_at=datetime(2026, 11, 13, 18, 37, tzinfo=UTC),
-            discoverer="leo_nightwatch",
-            notes=(
-                "Bright star leaves a dipole in the difference image: it moved north by "
-                "about 10 arcsec/yr. Barnard's Star, fastest proper motion in the sky."
+            discoverer=EXAMPLE_HANDLE,
+            notes=EXAMPLE_PREFIX + (
+                "Bright star leaves a dipole in the difference image: it moved north by about "
+                "10 arcsec in a year. Barnard's Star, the fastest proper motion in the sky."
             ),
-            ra_deg=barnard.ra_deg,
-            dec_deg=barnard.dec_deg,
+            # Patch centre = position at the epoch-1 date (2025-08-27); see barnards_star.json.
+            ra_deg=269.446346,
+            dec_deg=4.767207,
             target_name=barnard.name,
             classification=Classification.HIGH_PROPER_MOTION_STAR,
-            verifications_count=2,
+            verifications_count=1,
+            is_example=True,
         ),
     ]
 
@@ -237,12 +247,13 @@ class ReportService:
 
 
 def build_report_service() -> ReportService:
-    fallback = InMemoryReportRepository(seed=_seed_reports())
+    seed = _seed_reports() if settings.reports_demo_seed else []
+    fallback = InMemoryReportRepository(seed=seed)
     if not (settings.supabase_url and settings.supabase_key):
         logger.warning(
             "SUPABASE_URL/SUPABASE_KEY not set: citizen reports use the in-memory store "
-            "(seeded with %d sample discoveries).",
-            len(_seed_reports()),
+            "(%s).",
+            f"{len(seed)} labelled demo examples, REPORTS_DEMO_SEED=1" if seed else "empty",
         )
         return ReportService(primary=None, fallback=fallback)
 

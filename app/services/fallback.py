@@ -12,9 +12,10 @@ from __future__ import annotations
 import logging
 
 from app.core.patch_geometry import angular_separation_arcsec
-from app.schemas.sky_patch import SkyPatchResponse
+from app.schemas.sky_patch import FallbackReason, SkyPatchResponse
 from app.schemas.spectrum import SpectrumResponse
 from app.services import golden_path
+from app.services.live import LiveProcessingUnavailable, UpstreamUnavailable
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,15 @@ def nearest_cached_patch(ra_deg: float | None, dec_deg: float | None) -> tuple[S
     return best, distance
 
 
+def reason_code(reason: BaseException | str | None) -> FallbackReason:
+    """Machine-readable cause of a fallback, for `fallback_reason`."""
+    if isinstance(reason, UpstreamUnavailable):
+        return "irsa_unavailable"
+    if isinstance(reason, LiveProcessingUnavailable):
+        return "live_processing_unavailable"
+    return "unknown"
+
+
 def message_for(patch: SkyPatchResponse, distance_deg: float | None, reason: str | None = None) -> str:
     msg = FALLBACK_MESSAGE
     if distance_deg is not None and distance_deg > 0.25:
@@ -48,11 +58,16 @@ def message_for(patch: SkyPatchResponse, distance_deg: float | None, reason: str
     return msg
 
 
-def sky_patch_fallback(ra_deg: float | None, dec_deg: float | None, reason: str | None = None) -> SkyPatchResponse:
+def sky_patch_fallback(ra_deg: float | None, dec_deg: float | None,
+                       reason: BaseException | str | None = None) -> SkyPatchResponse:
+    """`reason`: the exception that triggered the fallback (or its text)."""
     patch, distance = nearest_cached_patch(ra_deg, dec_deg)
-    logger.warning("Serving fallback %s (%s)", patch.target_info.name, reason)
-    return patch.model_copy(update={"fallback": True, "fallback_message": message_for(patch, distance, reason)})
+    detail = str(reason) if reason is not None else None
+    logger.warning("Serving fallback %s (%s)", patch.target_info.name, detail)
+    return patch.model_copy(update={"fallback": True, "fallback_message": message_for(patch, distance, detail),
+                                    "fallback_reason": reason_code(reason)})
 
 
-def spectrum_fallback(ra_deg: float | None, dec_deg: float | None, reason: str | None = None) -> SpectrumResponse:
+def spectrum_fallback(ra_deg: float | None, dec_deg: float | None,
+                      reason: BaseException | str | None = None) -> SpectrumResponse:
     return golden_path.target_spectrum(sky_patch_fallback(ra_deg, dec_deg, reason))

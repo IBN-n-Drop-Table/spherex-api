@@ -98,6 +98,7 @@ def target_spectrum(patch: SkyPatchResponse, cached: bool = True) -> SpectrumRes
         spectrum_message=patch.spectrum_message,
         fallback=patch.fallback,
         fallback_message=patch.fallback_message,
+        fallback_reason=patch.fallback_reason,
     )
 
 

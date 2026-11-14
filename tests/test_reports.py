@@ -125,7 +125,7 @@ def test_verify_increments(client):
 def test_verify_unknown_and_malformed_ids(client):
     res = client.post(f"{URL}/{uuid4()}/verify")
     assert res.status_code == 404
-    assert res.json() == {"detail": "Report not found."}
+    assert res.json() == {"detail": "Report not found.", "code": "not_found", "errors": None}
     assert client.post(f"{URL}/not-a-uuid/verify").status_code == 422
 
 
@@ -136,7 +136,7 @@ def test_verify_is_thread_safe():
     report_id = _seed_reports()[1].id
     with ThreadPoolExecutor(max_workers=16) as pool:
         list(pool.map(lambda _: repo.verify(report_id), range(200)))
-    assert repo.verify(report_id).verifications_count == 2 + 200 + 1
+    assert repo.verify(report_id).verifications_count == 1 + 200 + 1
 
 
 def test_cors_preflight_for_post(client):
@@ -178,7 +178,28 @@ def test_no_env_vars_means_memory_backend(caplog):
     service = build_report_service()
     assert service.backend == "memory"
     assert "SUPABASE_URL/SUPABASE_KEY not set" in caplog.text
-    assert len(service.feed(limit=10)) == 2
+    assert service.feed(limit=10) == []  # no fake discoveries unless asked for
+
+
+def test_demo_seed_is_opt_in_and_clearly_labelled(monkeypatch):
+    from dataclasses import replace
+
+    import app.services.reports as reports
+
+    monkeypatch.setattr(reports, "settings", replace(reports.settings, reports_demo_seed=True))
+    feed = reports.build_report_service().feed(limit=10)
+    assert len(feed) == 2
+    for r in feed:
+        assert r.is_example is True
+        assert r.discoverer == reports.EXAMPLE_HANDLE
+        assert r.notes.startswith(reports.EXAMPLE_PREFIX)
+        assert r.snapshot_url is None  # no localhost URLs in a deployed feed
+        assert r.verifications_count == 1
+
+
+def test_real_reports_are_not_examples(client):
+    body = client.post(URL, json=NEW_REPORT).json()
+    assert body["is_example"] is False
 
 
 def test_health_reports_backend(client):

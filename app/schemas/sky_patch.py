@@ -26,6 +26,11 @@ ContaminationFlag = Annotated[str, StringConstraints(pattern=r"^[A-Z][A-Z0-9_]*$
 
 ImageFormat = Literal["png", "fits"]
 ChemicalBand = Literal["H2O", "CO2", "CO"]
+# Why cached data was served instead of a live answer (see app/services/fallback.py).
+FallbackReason = Literal["irsa_unavailable", "live_processing_unavailable", "unknown"]
+FALLBACK_REASON_DOC = ("Added field. Machine-readable cause when `fallback` is true: `irsa_unavailable` "
+                       "(IRSA timed out, throttled or failed), `live_processing_unavailable` (this server "
+                       "has no science stack). null when fallback is false")
 
 DETECTION_LABEL = "Detección Asistida por Software (BETA)"
 DETECTION_NOTICE = "Anomalía detectada por software: requiere verificación humana"
@@ -123,6 +128,31 @@ class DetectedAnomaly(_Strict):
     )
 
 
+DetectorId = Annotated[int, Field(ge=1, le=6)]
+_SHIFT_DOC = "Catalogue proper motion x delta_t (arcsec): how far the target should move"
+_WEAK_DOC = ("True when that expected shift is below one native SPHEREx pixel (6.15\"): "
+             "a dipole, if any, will be faint. Label it in the UI")
+
+
+class PairwiseDifference(_Strict):
+    """Added field. Difference between two consecutive visits (later - earlier).
+
+    Images and metadata only: the anomaly detector does not run on pairs."""
+
+    kind: Literal["consecutive"] = "consecutive"
+    epoch_a: str = Field(description="Later visit (minuend): subtracted = epoch_a - epoch_b",
+                         examples=["2025_M6"])
+    epoch_b: str = Field(description="Earlier visit (subtrahend)", examples=["2025_M0"])
+    image_format: ImageFormat = Field(default="png", description=_IMAGE_FORMAT_DOC)
+    subtracted_image_url: HttpUrl
+    delta_t_days: float = Field(gt=0, description="Days between the two visit medians")
+    detectors_used: list[DetectorId] = Field(
+        min_length=1, description="Detectors both visits share (the difference averages them)"
+    )
+    expected_shift_arcsec: float | None = Field(default=None, ge=0, description=_SHIFT_DOC)
+    weak_signal: bool = Field(description=_WEAK_DOC)
+
+
 class DifferenceImaging(_Strict):
     epoch_a: str = Field(description="Minuend epoch_id: subtracted = epoch_a - epoch_b", examples=["2025_M6"])
     epoch_b: str = Field(description="Subtrahend epoch_id", examples=["2025_M0"])
@@ -134,6 +164,23 @@ class DifferenceImaging(_Strict):
     )
     detection_notice: str | None = Field(
         default=DETECTION_NOTICE, description="Added field. Every anomaly needs human verification"
+    )
+    # ---- added fields (optional): epoch-difference metadata ----
+    kind: Literal["first_vs_last"] = Field(
+        default="first_vs_last",
+        description="Added field. This block is always the first vs the last visit "
+        "(anomalies are detected on it); consecutive pairs are in `pairwise`",
+    )
+    delta_t_days: float | None = Field(default=None, gt=0, description="Added field. Days between the visits")
+    detectors_used: list[DetectorId] | None = Field(
+        default=None, description="Added field. Detectors both visits share"
+    )
+    expected_shift_arcsec: float | None = Field(default=None, ge=0, description="Added field. " + _SHIFT_DOC)
+    weak_signal: bool | None = Field(default=None, description="Added field. " + _WEAK_DOC)
+    pairwise: list[PairwiseDifference] = Field(
+        default_factory=list,
+        description="Added field. Consecutive-visit differences, in time order. Empty with fewer "
+        "than 3 visits (the only pair is then this first-vs-last one)",
     )
 
 
@@ -177,6 +224,7 @@ class SkyPatchResponse(_Strict):
         default=False, description="True when IRSA failed and this is cached data for another position"
     )
     fallback_message: str | None = None
+    fallback_reason: FallbackReason | None = Field(default=None, description=FALLBACK_REASON_DOC)
 
     @model_validator(mode="after")
     def _consistent(self) -> Self:
@@ -190,6 +238,10 @@ class SkyPatchResponse(_Strict):
         diff = self.difference_imaging
         if diff.epoch_a == diff.epoch_b or not {diff.epoch_a, diff.epoch_b} <= epochs:
             raise ValueError("epoch_a and epoch_b must be two different timelapse epoch_ids")
+
+        for pair in diff.pairwise:
+            if pair.epoch_a == pair.epoch_b or not {pair.epoch_a, pair.epoch_b} <= epochs:
+                raise ValueError("pairwise epoch_a and epoch_b must be two different timelapse epoch_ids")
 
         if self.spectrum_epoch_id is not None and self.spectrum_epoch_id not in epochs:
             raise ValueError("spectrum_epoch_id must be a timelapse epoch_id")
@@ -205,5 +257,21 @@ class SkyPatchResponse(_Strict):
         return self
 
 
+class ErrorFieldProblem(BaseModel):
+    loc: list[str | int] = Field(description="Where the problem is, e.g. [\"query\", \"fov\"]")
+    msg: str
+    type: str
+
+
 class ErrorResponse(BaseModel):
-    detail: str
+    """Every error the API returns has this shape (app/core/errors.py)."""
+
+    detail: str = Field(description="Readable message, always a string")
+    code: str = Field(
+        description="Stable code: not_found, validation_error, service_unavailable, internal_error, "
+        "or http_<status>",
+        examples=["not_found"],
+    )
+    errors: list[ErrorFieldProblem] | None = Field(
+        default=None, description="Field problems of a 422 validation error; null otherwise"
+    )

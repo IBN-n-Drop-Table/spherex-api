@@ -3264,7 +3264,69 @@
       }
     ],
     "detection_label": "Detección Asistida por Software (BETA)",
-    "detection_notice": "Anomalía detectada por software: requiere verificación humana"
+    "detection_notice": "Anomalía detectada por software: requiere verificación humana",
+    "kind": "first_vs_last",
+    "delta_t_days": 515.64,
+    "detectors_used": [
+      2,
+      3,
+      5,
+      6
+    ],
+    "expected_shift_arcsec": 6.61,
+    "weak_signal": false,
+    "pairwise": [
+      {
+        "kind": "consecutive",
+        "epoch_a": "2025_M5",
+        "epoch_b": "2025_M0",
+        "image_format": "png",
+        "subtracted_image_url": "/static/golden_path/epsilonindib_diff_epoch1_epoch2.png",
+        "delta_t_days": 159.25,
+        "detectors_used": [
+          2,
+          3,
+          5,
+          6
+        ],
+        "expected_shift_arcsec": 2.04,
+        "weak_signal": true
+      },
+      {
+        "kind": "consecutive",
+        "epoch_a": "2025_M12",
+        "epoch_b": "2025_M5",
+        "image_format": "png",
+        "subtracted_image_url": "/static/golden_path/epsilonindib_diff_epoch2_epoch3.png",
+        "delta_t_days": 200.76,
+        "detectors_used": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "expected_shift_arcsec": 2.57,
+        "weak_signal": true
+      },
+      {
+        "kind": "consecutive",
+        "epoch_a": "2025_M17",
+        "epoch_b": "2025_M12",
+        "image_format": "png",
+        "subtracted_image_url": "/static/golden_path/epsilonindib_diff_epoch3_epoch4.png",
+        "delta_t_days": 155.63,
+        "detectors_used": [
+          2,
+          3,
+          5,
+          6
+        ],
+        "expected_shift_arcsec": 2.0,
+        "weak_signal": true
+      }
+    ]
   },
   "spectrum_102_bands": [
     {

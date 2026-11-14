@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from app.core import errors
 from app.core.config import settings
 from app.routers import epochs, jobs, reports, sky_patch, spectrum
 from app.services.golden_path import warm_cache
@@ -39,6 +40,8 @@ app = FastAPI(
     version=settings.app_version,
     lifespan=lifespan,
 )
+
+errors.install(app)  # one error shape everywhere: {"detail", "code", "errors"}
 
 app.add_middleware(
     CORSMiddleware,

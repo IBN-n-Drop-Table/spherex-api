@@ -7,7 +7,7 @@ from app.core.targets import CATALOG
 from app.routers.common import RunnerDep
 from app.schemas.epochs import EpochsResponse, EpochSummary, TargetSummary
 from app.schemas.sky_patch import ErrorResponse, SkyPatchResponse
-from app.services.fallback import nearest_cached_patch, message_for
+from app.services.fallback import message_for, nearest_cached_patch, reason_code
 from app.services.golden_path import cached_target, find_sky_patch
 from app.services.live import LiveProcessingUnavailable, UpstreamUnavailable
 
@@ -57,7 +57,8 @@ def get_epochs(
         epochs = _from_patch(patch)
         return EpochsResponse(ra_deg=ra_deg, dec_deg=dec_deg, n_images=_total(epochs), epochs=epochs,
                               is_cached_golden_path=True, fallback=True,
-                              fallback_message=message_for(patch, distance, str(exc)))
+                              fallback_message=message_for(patch, distance, str(exc)),
+                              fallback_reason=reason_code(exc))
 
 
 @router.get("/targets", response_model=list[TargetSummary],

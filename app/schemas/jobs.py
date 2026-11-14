@@ -35,7 +35,9 @@ class JobResponse(_Strict):
     updated_at: datetime
     # ---- added fields (optional) ----
     stage: str | None = Field(
-        default=None, description="queued | query | download | stack | render | done | failed"
+        default=None,
+        description="queued | query | download | stack | render | difference | done | failed "
+        "(`difference`: consecutive-visit differences, only with 3+ visits)",
     )
     progress: float | None = Field(default=None, ge=0, le=1, description="0..1")
     message: str | None = Field(default=None, description="Human-readable progress, in Spanish")

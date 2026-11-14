@@ -99,7 +99,7 @@ def submit_live_job(
     kind: JobKind,
     key: Hashable,
     work: Callable[[UUID, ProgressFn], BaseModel],
-    fallback: Callable[[str], BaseModel],
+    fallback: Callable[[Exception], BaseModel],
     jobs: JobService,
     background_tasks: BackgroundTasks,
 ) -> tuple[JobResponse, bool]:
@@ -128,7 +128,7 @@ def submit_live_job(
                 return work(job_id, progress)
             except (UpstreamUnavailable, LiveProcessingUnavailable) as exc:
                 try:
-                    result = fallback(str(exc))
+                    result = fallback(exc)
                 except NoCachedData:
                     raise exc from None
                 jobs.report(job_id, "done", 1.0, result.fallback_message or "Datos en caché")
