@@ -49,6 +49,19 @@ Full, always up-to-date schema: **`/docs`** (OpenAPI). A real response is in
 | `GET`  | `/api/v1/spectrum` | 102-band spectrum of a target, an anomaly or a position |
 | `GET/POST` | `/api/v1/reports` | Community feed (below) |
 
+### Errors
+
+Every error, from every endpoint, has one shape:
+
+```json
+{"detail": "fov: Input should be less than or equal to 30", "code": "validation_error",
+ "errors": [{"loc": ["query", "fov"], "msg": "Input should be less than or equal to 30", "type": "less_than_equal"}]}
+```
+
+- `detail` is always a readable string. (Before 2026-11-14, FastAPI's own 422s put a list there.)
+- `code` is stable: `not_found` (404), `validation_error` (422), `service_unavailable` (503, with `Retry-After`), `method_not_allowed` (405), `internal_error` (500), or `http_<status>`.
+- `errors` lists the field problems of a 422 validation error, and is `null` otherwise.
+
 ### Coordinates, field of view, band
 
 - `ra` / `dec`: decimal degrees **or** sexagesimal: `ra=08h55m10.831s` (also `08:55:10.831`), `dec=-7d14m42.53s` (also `-07:14:42.53`). Bad input -> **422**.

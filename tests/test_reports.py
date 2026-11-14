@@ -125,7 +125,7 @@ def test_verify_increments(client):
 def test_verify_unknown_and_malformed_ids(client):
     res = client.post(f"{URL}/{uuid4()}/verify")
     assert res.status_code == 404
-    assert res.json() == {"detail": "Report not found."}
+    assert res.json() == {"detail": "Report not found.", "code": "not_found", "errors": None}
     assert client.post(f"{URL}/not-a-uuid/verify").status_code == 422
 
 

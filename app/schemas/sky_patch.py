@@ -257,5 +257,21 @@ class SkyPatchResponse(_Strict):
         return self
 
 
+class ErrorFieldProblem(BaseModel):
+    loc: list[str | int] = Field(description="Where the problem is, e.g. [\"query\", \"fov\"]")
+    msg: str
+    type: str
+
+
 class ErrorResponse(BaseModel):
-    detail: str
+    """Every error the API returns has this shape (app/core/errors.py)."""
+
+    detail: str = Field(description="Readable message, always a string")
+    code: str = Field(
+        description="Stable code: not_found, validation_error, service_unavailable, internal_error, "
+        "or http_<status>",
+        examples=["not_found"],
+    )
+    errors: list[ErrorFieldProblem] | None = Field(
+        default=None, description="Field problems of a 422 validation error; null otherwise"
+    )
