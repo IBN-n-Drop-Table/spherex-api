@@ -43,7 +43,7 @@ pip install -r requirements.txt
 pip install -r requirements-science.txt 
 uvicorn app.main:app --reload --port 8000
 ```
-Once running you can acces the api docs and the api healthcheck at:
+Once running you can access the api docs and the api healthcheck at:
 
 - Interactive docs (OpenAPI): <http://localhost:8000/docs>
 - Health check: <http://localhost:8000/health> (reports `live_processing` and `reports_backend`)
@@ -67,7 +67,7 @@ Full, always up-to-date schema: **`/docs`**. A real response is in [`docs/contra
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/api/v1/targets` | The 5 challenge objects (demo buttons) and whether they are cached |
-| `GET` | `/api/v1/sky-patch` | Timelapse (every visit), difference image, anomalies, spectrum, light curve |
+| `GET` | `/api/v1/sky-patch` | Timelapse (every visit), difference image, anomalies, spectrum, light curve, needs specific coordinates or target |
 | `POST` | `/api/v1/jobs` | Start (or reuse) a computation; returns a `job_id` at once |
 | `GET` | `/api/v1/jobs/{job_id}` | Poll: `status`, `stage`, `progress`, `message`, `eta_s`, `result` |
 | `GET` | `/api/v1/epochs` | Visits covering a position (metadata only, no downloads) |
@@ -84,6 +84,17 @@ Full, always up-to-date schema: **`/docs`**. A real response is in [`docs/contra
 
 ### `GET /api/v1/sky-patch`
 
+Every type of query you can make to the sky-patch endpoint.
+```bash
+curl "http://localhost:8000/api/v1/sky-patch?target=WISE_0855"
+curl "http://localhost:8000/api/v1/sky-patch?ra=133.795&dec=-7.245&fov=5"
+curl "http://localhost:8000/api/v1/sky-patch?ra=08h55m10.831s&dec=-7d14m42.53s&band=H2O"
+curl -i "http://localhost:8000/api/v1/sky-patch?target=M31"          # 404
+curl -i "http://localhost:8000/api/v1/sky-patch?ra=10.68&dec=41.27"  # 202 + job
+```
+
+Depending on the target or coordinates passed to these endpoints it can have different results.
+
 | Situation | Response |
 |---|---|
 | `target` is cached, or (`ra`, `dec`) falls in a cached target's box | **200** `SkyPatchResponse`, instantly |
@@ -91,7 +102,7 @@ Full, always up-to-date schema: **`/docs`**. A real response is in [`docs/contra
 | Unknown `target` and no coordinates | **404** |
 | Value out of range (`dec=200`, `fov=0.5`, `ra=25h`) | **422** |
 
-What the frontend gets (all image URLs absolute):
+What the frontend gets as a response from this endpoint (all image URLs absolute):
 
 - `timelapse_epochs[]`: **one entry per SPHEREx visit** (3 for Barnard's Star and WISE 0855), for a blink comparator. Same stretch in every epoch, so blinking is honest. `chemical_filters` has `H2O`, `CO2` and `CO` when that visit has exposures in the window.
 - `difference_imaging`: `epoch_a` (last visit) minus `epoch_b` (first visit): the longest baseline, so the most motion. `detected_anomalies[]` come with `kind` (`appeared`/`disappeared`), `contamination_flags`, `is_clean_detection`, and the labels `detection_label` ("Detección Asistida por Software (BETA)") and `detection_notice` ("requiere verificación humana").
@@ -99,7 +110,7 @@ What the frontend gets (all image URLs absolute):
 - `saturated` / `spectrum_message`: bright stars (Barnard's Star, R Draconis) saturate SPHEREx. Their cores are **shown** in the PNGs but **excluded** from the spectrum and light curve.
 - `fallback` / `fallback_message`: see [Offline-first fallback](#offline-first-fallback).
 
-### Jobs with progress (coordinates not in the cache)
+### Jobs with progress (when coordinates are not in the cache)
 
 ```bash
 curl -X POST localhost:8000/api/v1/jobs -H 'content-type: application/json' \
@@ -110,12 +121,10 @@ curl localhost:8000/api/v1/jobs/<job_id>
 # {"status": "running", "stage": "download", "progress": 0.41, "eta_s": 27, ...}
 ```
 
-- Cached targets come back **200** with `status: completed` and the `result` at once.
 - Poll every `retry_after_ms` (1500 ms). Stages: `queued` -> `query` -> `download` -> `stack` -> `render` -> `done` (or `failed`).
-- **A cold job takes tens of seconds to a few minutes:** each IRSA cutout takes ~12 s (it always carries a ~4 MB PSF table), and live mode downloads 1 cutout per detector and visit (~18). Measured on 2026-11-14: 40-100 s for Barnard's Star.
+- **A cold job takes tens of seconds to a few minutes:** each IRSA cutout takes ~12 s (it always carries a ~4 MB PSF table), and live mode downloads 1 cutout per detector and visit (~18). Test measures taken on 2026-11-14: 40-100 s for Barnard's Star.
 - The same query returns the same job. One job runs at a time; more than 8 queued returns **503** with `Retry-After: 30`.
 - Jobs live in memory (1 h after finishing). A restart forgets them, which is why the service runs a single uvicorn worker.
-- The legacy `GET /sky-patch` / `GET /spectrum` 202 + `Location` flow still works.
 
 ### `GET /api/v1/epochs?ra=..&dec=..`
 
@@ -300,7 +309,7 @@ Downloaded cutouts are kept in astropy's download cache (`~/.astropy/cache`), so
 6. **Builds the products.**
    - RGB image: B = detectors 1-2, G = 3-4, R = 5-6.
    - H2O (1.4-1.9 and 2.6-2.8 um), CO2 (4.2-4.4 um) and CO (4.60-4.74 um) filter images.
-   - Difference image (last - first visit), always subtracting each detector from the same detector.
+   - Difference image (subtracts the first epoch to the second one in each pair of consecutive epochs), always subtracting each detector from the same detector.
    - Anomalies found with OpenCV on the SNR map; detections within `--dedup-radius-px` (12) are merged and each gets its own 102-band spectrum.
    - A 6 x 17 = 102-channel LVF spectrum, combined with inverse-variance weighting.
    - A light curve with one point per visit; no valid photometry gives `null` plus a `note`, never 0.
