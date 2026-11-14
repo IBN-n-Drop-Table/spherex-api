@@ -4,8 +4,9 @@
 For each target this script:
   1. Queries IRSA SIA for SPHEREx Level 2 Spectral Image MEFs (wide survey,
      falling back to the deep fields when coverage is sparse).
-  2. Groups exposures into survey visits by `t_min` and picks two epochs
-     ~6 months apart.
+  2. Groups exposures into survey visits by gaps in `t_min` (never fixed
+     calendar semesters: those split a visit in two). Every visit becomes a
+     timelapse epoch; the difference image compares the first and last.
   3. Downloads a small server-side cutout of every exposure (IRSA cutout
      service: same MEF layout, ~100x fewer bytes than a 66 MB full frame),
      subtracts ZODI from IMAGE, evaluates the spectral WCS at the target,
@@ -13,7 +14,9 @@ For each target this script:
      a common north-up grid centred on the target at epoch 1.
      The grid covers exactly --fov arcmin; the --png-size PNGs are an exact
      integer upscale of it, described by the `patch.wcs` block in the JSON.
-  4. Renders broadband RGB, H2O / CO2 filter and difference PNGs.
+  4. Renders broadband RGB, H2O / CO2 / CO filter and difference PNGs.
+     Saturated pixels (OVERFLOW/BLOOM) are shown in the PNGs but excluded
+     from every measurement.
   5. Detects anomalies in (epoch 2 - epoch 1) with OpenCV, merges split
      contours closer than --dedup-radius-px, and measures a 102-band
      spectrum at every anomaly.
@@ -38,6 +41,7 @@ import sys
 import time
 import urllib.error
 import warnings
+from collections.abc import Callable
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
@@ -58,11 +62,12 @@ from astropy.table import Table, unique, vstack
 from astropy.time import Time
 from astropy.utils.data import conf
 from astropy.visualization import AsinhStretch, ZScaleInterval
+from astropy.io.votable import parse_single_table
 from astropy.wcs import WCS, FITSFixedWarning
-from astroquery.ipac.irsa import Irsa
 from matplotlib import colormaps
 from matplotlib.colors import LinearSegmentedColormap
 from PIL import Image
+import requests
 from pyvo.dal.exceptions import DALServiceError
 from reproject import reproject_interp
 
@@ -77,6 +82,7 @@ from app.core.patch_geometry import (  # noqa: E402
     suppress_duplicates,
 )
 from app.core.targets import CATALOG, Target  # noqa: E402
+from app.core.urls import to_internal, to_relative  # noqa: E402
 from app.schemas.sky_patch import SkyPatchResponse  # noqa: E402
 
 log = logging.getLogger("golden_path")
@@ -112,10 +118,12 @@ CHANNELS_PER_DETECTOR = 17
 CHEMICAL_WINDOWS_UM: dict[str, list[tuple[float, float]]] = {
     "H2O": [(1.4, 1.9), (2.6, 2.8)],
     "CO2": [(4.2, 4.4)],
+    "CO": [(4.6, 4.74)],  # CO fundamental band (~4.67 um)
 }
 CHEMICAL_CMAPS = {
     "H2O": LinearSegmentedColormap.from_list("h2o", ["#000000", "#1f5fff", "#d6ecff"]),
     "CO2": LinearSegmentedColormap.from_list("co2", ["#000000", "#d7301f", "#ffe0c8"]),
+    "CO": LinearSegmentedColormap.from_list("co", ["#000000", "#1a9850", "#e5f5c9"]),
 }
 RGB_DETECTORS = {"R": (5, 6), "G": (3, 4), "B": (1, 2)}
 
@@ -123,8 +131,30 @@ RGB_DETECTORS = {"R": (5, 6), "G": (3, 4), "B": (1, 2)}
 ARTIFACT_FLAGS = {"HOT", "NONFUNC", "OUTLIER", "SNOWBALL", "BLOOM", "GHOST", "STREAK"}
 # Pixels carrying these are excluded from stacks and photometry.
 STACK_MASK_FLAGS = ARTIFACT_FLAGS | {"TRANSIENT", "OVERFLOW", "SUR_ERROR", "MISSING_DATA"}
+# Bright-star saturation. Verified on real Barnard's Star cutouts (2026-11-14):
+# the core carries OVERFLOW + BLOOM + SOURCE. These pixels are SHOWN in the
+# PNGs (display only) but EXCLUDED from stacks used for measurements.
+SATURATION_FLAGS = {"OVERFLOW", "BLOOM"}
+DISPLAY_MASK_FLAGS = STACK_MASK_FLAGS - SATURATION_FLAGS
+SATURATED_MESSAGE = ("El núcleo de la fuente satura SPHEREx (flags OVERFLOW/BLOOM): esos píxeles "
+                     "se muestran en las imágenes pero se excluyen del espectro y de la curva de luz.")
 # Used only if an exposure's FLAGS header carries no MSKNnnnn keywords.
 DEFAULT_FLAG_BITS = {0: "TRANSIENT", 19: "OUTLIER", 21: "SOURCE", 26: "BLOOM", 27: "SNOWBALL"}
+
+
+IRSA_SIA_URL = "https://irsa.ipac.caltech.edu/SIA"
+RETRY_STATUS = {429, 500, 502, 503, 504}
+
+
+class IrsaUnavailable(RuntimeError):
+    """IRSA did not answer in time, or kept answering 429/5xx."""
+
+
+ProgressFn = Callable[[str, float, str], None]  # (stage, fraction 0..1, message)
+
+
+def _no_progress(stage: str, fraction: float, message: str) -> None:
+    pass
 
 
 # --------------------------------------------------------------------------- #
@@ -138,17 +168,19 @@ class StorageUploader(ABC):
 
 
 class LocalStorage(StorageUploader):
-    """Writes under app/static/<url_path>/, which the API serves at /static/<url_path>/."""
+    """Writes under app/static/<url_path>/, which the API serves at /static/<url_path>/.
 
-    def __init__(self, base_url: str, url_path: str = "golden_path") -> None:
+    Returns a path RELATIVE to the API ('/static/...'); the API prepends its
+    public base when serving (app/core/urls.py)."""
+
+    def __init__(self, url_path: str = "golden_path") -> None:
         self.url_path = url_path.strip("/")
         self.directory = REPO_ROOT / "app" / "static" / self.url_path
         self.directory.mkdir(parents=True, exist_ok=True)
-        self.base_url = base_url.rstrip("/")
 
     def upload_png(self, filename: str, data: bytes) -> str:
         (self.directory / filename).write_bytes(data)
-        return f"{self.base_url}/static/{self.url_path}/{filename}"
+        return f"/static/{self.url_path}/{filename}"
 
 
 class SupabaseStorage(StorageUploader):
@@ -176,8 +208,8 @@ class SupabaseStorage(StorageUploader):
         return self.bucket.get_public_url(path).rstrip("?")
 
 
-def make_uploader(kind: str, public_base_url: str) -> StorageUploader:
-    return SupabaseStorage() if kind == "supabase" else LocalStorage(public_base_url)
+def make_uploader(kind: str) -> StorageUploader:
+    return SupabaseStorage() if kind == "supabase" else LocalStorage()
 
 
 # --------------------------------------------------------------------------- #
@@ -205,12 +237,39 @@ def with_retry(fn, what: str, attempts: int = 3, base_delay: float = 5.0):
             time.sleep(delay)
 
 
-def query_sia(coord: SkyCoord, collections: list[str]) -> Table:
-    rows = with_retry(
-        lambda: Irsa.query_sia(pos=(coord, 1 * u.arcsec), collection=collections),
-        what=f"SIA query {collections}",
-    )
-    rows = Table(rows)
+def sia_http(coord: SkyCoord, collections: list[str], budget_s: float) -> Table:
+    """SIA2 query straight over HTTP, retried until `budget_s` runs out.
+
+    Why not Irsa.query_sia: pyvo first GETs /SIA/capabilities, and on
+    2026-11-14 that endpoint answered 502 about half the time while the query
+    endpoint itself worked. Raises IrsaUnavailable when the budget is spent.
+    """
+    params = [("COLLECTION", c) for c in collections]
+    params += [("POS", f"circle {coord.ra.deg:.7f} {coord.dec.deg:.7f} {1 / 3600:.7f}"),
+               ("RESPONSEFORMAT", "VOTABLE")]
+    deadline = time.monotonic() + budget_s
+    attempt, last = 0, "no answer"
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0.05:
+            raise IrsaUnavailable(f"IRSA SIA did not answer within {budget_s:.0f} s ({last})")
+        attempt += 1
+        try:
+            r = requests.get(IRSA_SIA_URL, params=params, timeout=max(0.5, remaining))
+            if r.status_code == 200 and b"<VOTABLE" in r.content[:2000]:
+                return parse_single_table(io.BytesIO(r.content)).to_table(use_names_over_ids=True)
+            last = f"HTTP {r.status_code}"
+            if r.status_code not in RETRY_STATUS and r.status_code != 200:
+                raise IrsaUnavailable(f"IRSA SIA answered {last}")
+        except requests.RequestException as exc:
+            last = type(exc).__name__
+        delay = min(0.5 * 2 ** (attempt - 1), 8.0, max(0.0, deadline - time.monotonic()))
+        log.info("SIA attempt %d failed (%s); retrying in %.1fs", attempt, last, delay)
+        time.sleep(delay)
+
+
+def query_sia(coord: SkyCoord, collections: list[str], budget_s: float = 120.0) -> Table:
+    rows = sia_http(coord, collections, budget_s)
     if len(rows) and "dataproduct_subtype" in rows.colnames:
         rows = rows[rows["dataproduct_subtype"] == "science"]
     return rows
@@ -240,12 +299,16 @@ def group_epochs(rows: Table, gap_days: float) -> list[Table]:
     return [rows[idx] for idx in np.split(np.arange(len(rows)), breaks)]
 
 
-def pick_epochs(groups: list[Table], strategy: str, min_rows: int) -> tuple[Table, Table] | None:
+def pick_epochs(groups: list[Table], strategy: str, min_rows: int) -> list[Table] | None:
+    """Visits to use, in time order. `all` (default): every usable visit;
+    the difference image then compares the first and the last."""
     usable = [g for g in groups if len(g) >= min_rows]
     if len(usable) < 2:
         return None
+    if strategy == "all":
+        return usable
     if strategy == "first-last":
-        return usable[0], usable[-1]
+        return [usable[0], usable[-1]]
     medians = [float(np.median(g["t_min"])) for g in usable]
     best, best_score = None, -1
     for i in range(len(usable)):
@@ -253,29 +316,29 @@ def pick_epochs(groups: list[Table], strategy: str, min_rows: int) -> tuple[Tabl
             if 120 <= medians[j] - medians[i] <= 240:  # ~6 months
                 score = min(len(usable[i]), len(usable[j]))
                 if score > best_score:
-                    best, best_score = (usable[i], usable[j]), score
-    return best or (usable[0], usable[-1])
+                    best, best_score = [usable[i], usable[j]], score
+    return best or [usable[0], usable[-1]]
 
 
-def find_epoch_rows(target: Target, args) -> tuple[Table, Table]:
-    conf.remote_timeout = 120
+def find_epoch_rows(target: Target, args) -> list[Table]:
+    conf.remote_timeout = args.download_timeout
     coord = position_at(target, Time("2026-01-01T00:00:00", scale="utc"))
-    rows = dedupe(query_sia(coord, WIDE_COLLECTIONS), WIDE_COLLECTIONS)
+    rows = dedupe(query_sia(coord, WIDE_COLLECTIONS, args.sia_budget_s), WIDE_COLLECTIONS)
     log.info("SIA wide survey: %d exposures", len(rows))
-    pair = pick_epochs(group_epochs(rows, args.epoch_gap_days), args.epoch_strategy, args.min_exposures)
-    if pair is None:
+    visits = pick_epochs(group_epochs(rows, args.epoch_gap_days), args.epoch_strategy, args.min_exposures)
+    if visits is None:
         log.info("Wide coverage sparse; adding deep-field collections")
-        deep = query_sia(coord, DEEP_COLLECTIONS)
+        deep = query_sia(coord, DEEP_COLLECTIONS, args.sia_budget_s)
         if len(deep):
             rows = dedupe(vstack([rows, deep]) if len(rows) else deep,
                           WIDE_COLLECTIONS + DEEP_COLLECTIONS)
-        pair = pick_epochs(group_epochs(rows, args.epoch_gap_days), args.epoch_strategy, args.min_exposures)
-    if pair is None:
+        visits = pick_epochs(group_epochs(rows, args.epoch_gap_days), args.epoch_strategy, args.min_exposures)
+    if visits is None:
         raise RuntimeError(
             f"Need two visits with >= {args.min_exposures} exposures each; got "
             f"{[len(g) for g in group_epochs(rows, args.epoch_gap_days)]}"
         )
-    return pair
+    return visits
 
 
 def subsample(rows: Table, limit: int | None) -> Table:
@@ -287,8 +350,51 @@ def subsample(rows: Table, limit: int | None) -> Table:
     return rows[np.unique(np.linspace(0, len(rows) - 1, limit).astype(int))]
 
 
-def open_fits_with_retry(url: str, use_cache: bool) -> fits.HDUList:
-    return with_retry(lambda: fits.open(url, memmap=False, cache=use_cache), what=f"GET {url[-60:]}")
+def visit_ids(visits: list[Table]) -> tuple[list[Time], list[str]]:
+    """Median time and epoch_id of each visit ('2025_M0', '2025_M7'...: months since the first)."""
+    times = [Time(float(np.median(v["t_min"])), format="mjd", scale="utc") for v in visits]
+    if not times:
+        return [], []
+    t1 = times[0]
+    return times, [f"{t1.datetime.year}_M{round((t - t1).to_value(u.day) / 30.44)}" for t in times]
+
+
+def summarize_visits(visits: list[Table]) -> list[dict]:
+    """Metadata-only epoch list for GET /api/v1/epochs."""
+    times, ids = visit_ids(visits)
+    out = []
+    for v, t, eid in zip(visits, times, ids):
+        mjd = np.asarray(v["t_min"], dtype=float)
+        bands = [str(b) for b in v["energy_bandpassname"]]
+        out.append({
+            "epoch_id": eid,
+            "date": t.datetime.replace(microsecond=0).isoformat() + "Z",
+            "date_start": Time(mjd.min(), format="mjd").iso[:10],
+            "date_end": Time(mjd.max(), format="mjd").iso[:10],
+            "n_images": len(v),
+            "n_per_detector": {f"D{d}": sum(b.endswith(f"D{d}") for b in bands) for d in range(1, 7)},
+        })
+    return out
+
+
+def subsample_per_detector(rows: Table, per_detector: int | None) -> Table:
+    """Keep at most `per_detector` exposures per detector, spread in time."""
+    if not per_detector or not len(rows):
+        return rows
+    keep = []
+    for band in sorted(set(str(b) for b in rows["energy_bandpassname"])):
+        idx = np.where(np.asarray([str(b) for b in rows["energy_bandpassname"]]) == band)[0]
+        idx = idx[np.argsort(np.asarray(rows["t_min"])[idx])]
+        pick = np.unique(np.linspace(0, len(idx) - 1, min(per_detector, len(idx))).round().astype(int))
+        keep.extend(idx[pick].tolist())
+    out = rows[sorted(keep)]
+    out.sort("t_min")
+    return out
+
+
+def open_fits_with_retry(url: str, use_cache: bool, base_delay: float = 5.0) -> fits.HDUList:
+    return with_retry(lambda: fits.open(url, memmap=False, cache=use_cache),
+                      what=f"GET {url[-60:]}", base_delay=base_delay)
 
 
 # --------------------------------------------------------------------------- #
@@ -302,6 +408,7 @@ class Exposure:
     wavelength_um: float
     bandwidth_um: float
     image: np.ndarray  # zodi-subtracted, on reference grid, artifacts = NaN
+    display: np.ndarray  # same, but saturated pixels (OVERFLOW/BLOOM) kept: PNGs only
     variance: np.ndarray  # on reference grid
     flags: np.ndarray  # raw bitmask on reference grid (float, NaN = no data)
     wave_map: np.ndarray  # LVF wavelength (um) at each reference-grid pixel
@@ -309,6 +416,7 @@ class Exposure:
     flag_names: dict[int, str]
     ap_flux: float | None  # target photometry, measured on the native cutout
     ap_var: float | None
+    saturated: bool = False  # OVERFLOW/BLOOM inside the target aperture
 
 
 @dataclass(frozen=True)
@@ -360,7 +468,7 @@ def process_row(row, target: Target, ref_wcs: WCS, ref_shape: tuple[int, int], a
     url = (f"{row['access_url']}?center={coord.ra.deg:.6f},{coord.dec.deg:.6f}"
            f"&size={support_arcmin / 60:.4f}")
 
-    with open_fits_with_retry(url, use_cache=not args.no_cache) as hdulist:
+    with open_fits_with_retry(url, use_cache=not args.no_cache, base_delay=args.retry_base_delay) as hdulist:
         header = hdulist["IMAGE"].header
         clean = hdulist["IMAGE"].data.astype(np.float64) - hdulist["ZODI"].data.astype(np.float64)
         variance = hdulist["VARIANCE"].data.astype(np.float64)
@@ -395,6 +503,25 @@ def process_row(row, target: Target, ref_wcs: WCS, ref_shape: tuple[int, int], a
         return None
 
     mask_bits = sum(1 << b for b, n in flag_names.items() if n in STACK_MASK_FLAGS)
+    display_bits = sum(1 << b for b, n in flag_names.items() if n in DISPLAY_MASK_FLAGS)
+    sat_bits = sum(1 << b for b, n in flag_names.items() if n in SATURATION_FLAGS)
+    yy, xx = np.indices(clean.shape)
+    in_aperture = np.hypot(xx - x, yy - y) <= args.aperture_px + 0.5
+    saturated = bool(((flags_raw[in_aperture] & sat_bits) != 0).any())
+
+    # Display copy: saturated pixels stay visible even when other bits
+    # (TRANSIENT, SUR_ERROR) ride along, as they do around bright stars. Core
+    # pixels that IRSA itself left as NaN with OVERFLOW are painted at the
+    # cutout maximum: the usual "saturated = white" rendering, display only.
+    overflow_bits = sum(1 << b for b, n in flag_names.items() if n == "OVERFLOW")
+    overflow = ((flags_raw & overflow_bits) != 0).astype(np.uint8)
+    near_core = cv2.dilate(overflow, np.ones((7, 7), np.uint8)).astype(bool)  # <= 3 px from OVERFLOW
+    is_sat = ((flags_raw & sat_bits) != 0) & near_core  # stray BLOOM elsewhere stays masked
+    display = clean.copy()
+    display[((flags_raw & display_bits) != 0) & ~is_sat] = np.nan
+    finite = np.isfinite(display)
+    if finite.any():
+        display[is_sat & ~finite] = float(np.nanmax(display))
     bad = (flags_raw & mask_bits) != 0
     clean[bad] = np.nan
     variance[bad] = np.nan
@@ -407,7 +534,7 @@ def process_row(row, target: Target, ref_wcs: WCS, ref_shape: tuple[int, int], a
     reprojected = []
     try:
         for data, order in ((clean, "bilinear"), (variance, "bilinear"),
-                            (flags_raw.astype(np.float64), "nearest-neighbor")):
+                            (flags_raw.astype(np.float64), "nearest-neighbor"), (display, "bilinear")):
             cut = Cutout2D(data, coord, size, wcs=spatial_wcs, mode="partial", fill_value=np.nan)
             out = reproject_interp((cut.data, cut.wcs), deepcopy(ref_wcs), shape_out=ref_shape,
                                    order=order, return_footprint=False)
@@ -422,6 +549,7 @@ def process_row(row, target: Target, ref_wcs: WCS, ref_shape: tuple[int, int], a
         wavelength_um=wavelength_um,
         bandwidth_um=bandwidth_um,
         image=reprojected[0],
+        display=reprojected[3],
         variance=reprojected[1],
         flags=reprojected[2],
         wave_map=wave_map,
@@ -429,10 +557,34 @@ def process_row(row, target: Target, ref_wcs: WCS, ref_shape: tuple[int, int], a
         flag_names=flag_names,
         ap_flux=ap_flux,
         ap_var=ap_var,
+        saturated=saturated,
     )
 
 
-def process_rows(rows: Table, target: Target, ref_wcs: WCS, ref_shape, args, label: str) -> list[Exposure]:
+class DownloadProgress:
+    """Thread-safe cutout counter that reports to a ProgressFn (5% -> 85%)."""
+
+    def __init__(self, total: int, workers: int, progress: ProgressFn, seconds_per_cutout: float):
+        import threading
+
+        self.total, self.done = max(total, 1), 0
+        self.workers, self.spc = max(workers, 1), seconds_per_cutout
+        self.progress, self.t0 = progress, time.monotonic()
+        self._lock = threading.Lock()
+
+    def tick(self) -> None:
+        with self._lock:
+            self.done += 1
+            done = self.done
+        elapsed = time.monotonic() - self.t0
+        rate = elapsed / done  # observed seconds per cutout (all workers)
+        remaining = max(0, round(rate * (self.total - done)))
+        self.progress("download", 0.05 + 0.80 * done / self.total,
+                      f"Descargando recortes de IRSA: {done}/{self.total} (~{remaining} s restantes)")
+
+
+def process_rows(rows: Table, target: Target, ref_wcs: WCS, ref_shape, args, label: str,
+                 counter: DownloadProgress | None = None) -> list[Exposure]:
     out: list[Exposure] = []
     failures = 0
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
@@ -446,10 +598,15 @@ def process_rows(rows: Table, target: Target, ref_wcs: WCS, ref_shape, args, lab
             except Exception as exc:  # one bad exposure must not kill the run
                 failures += 1
                 log.warning("[%s] exposure %d skipped: %s: %s", label, futures[fut], type(exc).__name__, exc)
+            if counter is not None:
+                counter.tick()
             if n % 20 == 0 or n == len(futures):
                 log.info("[%s] %d/%d exposures processed", label, n, len(futures))
     log.info("[%s] %d usable, %d failed, %d off-target", label, len(out), failures,
              len(rows) - len(out) - failures)
+    if len(rows) and failures > len(rows) / 2:
+        # Mostly download errors: treat as an IRSA outage, not as "no data".
+        raise IrsaUnavailable(f"{failures}/{len(rows)} cutout downloads failed for {label}")
     return sorted(out, key=lambda e: e.mjd)
 
 
@@ -507,6 +664,7 @@ class EpochProduct:
     when: datetime
     exposures: list[Exposure]
     detector_stacks: dict[int, tuple[np.ndarray, np.ndarray]] = field(default_factory=dict)
+    display_stacks: dict[int, tuple[np.ndarray, np.ndarray]] = field(default_factory=dict)
     flag_fraction: dict[int, np.ndarray] = field(default_factory=dict)
     flag_names: dict[int, str] = field(default_factory=dict)
 
@@ -521,6 +679,8 @@ class EpochProduct:
             members = [e for e in exposures if e.detector == det]
             prod.detector_stacks[det] = median_stack([e.image for e in members],
                                                      [e.variance for e in members])
+            prod.display_stacks[det] = median_stack([e.display for e in members],
+                                                    [e.variance for e in members])
         # Per-bit fraction of covering exposures with that flag set.
         for e in exposures:
             prod.flag_names.update(e.flag_names)
@@ -536,14 +696,24 @@ class EpochProduct:
         prod.flag_fraction = {b: c / np.maximum(coverage, 1) for b, c in counts.items()}
         return prod
 
-    def stack_of(self, detectors) -> tuple[np.ndarray, np.ndarray] | None:
-        stacks = [self.detector_stacks[d] for d in detectors if d in self.detector_stacks]
+    def stack_of(self, detectors, display: bool = False) -> tuple[np.ndarray, np.ndarray] | None:
+        source = self.display_stacks if display else self.detector_stacks
+        stacks = [source[d] for d in detectors if d in source]
         return mean_of(stacks) if stacks else None
 
-    def chemical_stack(self, molecule: str) -> np.ndarray | None:
+    def chemical_stack(self, molecule: str, display: bool = True) -> np.ndarray | None:
+        """Stack of the exposures whose wavelength at the target falls in the window."""
         members = [e for e in self.exposures
                    if any(lo <= e.wavelength_um <= hi for lo, hi in CHEMICAL_WINDOWS_UM[molecule])]
-        return median_stack([e.image for e in members], [e.variance for e in members])[0] if members else None
+        if not members:
+            return None
+        return median_stack([e.display if display else e.image for e in members],
+                            [e.variance for e in members])[0]
+
+    @property
+    def saturated(self) -> bool:
+        covering = [e for e in self.exposures if e.ap_flux is not None or e.saturated]
+        return bool(covering) and sum(e.saturated for e in covering) > len(covering) / 2
 
     def flags_at(self, row: int, col: int, majority: float) -> set[str]:
         return {self.flag_names[b] for b, frac in self.flag_fraction.items() if frac[row, col] >= majority}
@@ -579,8 +749,8 @@ def to_png(rgb: np.ndarray, size: int) -> bytes:
 
 
 def render_rgb(epoch: EpochProduct, limits: dict[str, tuple[float, float]], size: int) -> bytes:
-    channels = {c: epoch.stack_of(dets) for c, dets in RGB_DETECTORS.items()}
-    fallback = epoch.stack_of(LVF_BANDS)[0]
+    channels = {c: epoch.stack_of(dets, display=True) for c, dets in RGB_DETECTORS.items()}
+    fallback = epoch.stack_of(LVF_BANDS, display=True)[0]
     planes = [asinh_stretch(channels[c][0] if channels[c] else fallback, limits[c]) for c in "RGB"]
     return to_png(np.dstack(planes), size)
 
@@ -665,6 +835,7 @@ def detect_anomalies(
             "snr_confidence": round(snr_ap, 2),
             "contamination_flags": flags,
             "is_clean_detection": not (set(flags) & ARTIFACT_FLAGS),
+            "kind": "appeared" if sign > 0 else "disappeared",
             "spectrum_epoch_id": source_epoch.epoch_id,
             "spectrum_102_bands": sorted(spectrum.values(), key=lambda b: b["wavelength_um"]),
         })
@@ -720,59 +891,84 @@ def binned_spectrum(samples: list[Sample]) -> dict[tuple[int, int], dict]:
 
 
 def light_curve_point(epoch: EpochProduct, spec: dict, common: set) -> dict:
-    keys = common or set(spec)
+    """Mean over the channels every epoch shares. No data -> null + reason, never 0."""
+    point = {"epoch_id": epoch.epoch_id, "date": epoch.when.date().isoformat(),
+             "flux_mjy_sr": None, "variance": None, "note": None}
+    if not spec:
+        point["note"] = ("Sin fotometría válida: el núcleo satura SPHEREx (OVERFLOW/BLOOM)"
+                         if epoch.saturated else "Sin fotometría válida en el centro en esta visita")
+        return point
+    keys = common & set(spec)
+    if not keys:
+        keys = set(spec)
+        point["note"] = "Sin canales comunes con las otras visitas: media de sus propios canales (aproximada)"
     fluxes = [spec[k]["flux_mjy_sr"] for k in keys]
     variances = [spec[k]["variance"] for k in keys]
-    return {
-        "epoch_id": epoch.epoch_id,
-        "date": epoch.when.date().isoformat(),
-        "flux_mjy_sr": sig(float(np.mean(fluxes))) if fluxes else 0.0,
-        "variance": sig(float(np.sum(variances) / len(variances) ** 2)) if variances else 0.0,
-    }
+    point["flux_mjy_sr"] = sig(float(np.mean(fluxes)))
+    point["variance"] = sig(float(np.sum(variances) / len(variances) ** 2))
+    return point
 
 
 # --------------------------------------------------------------------------- #
 # Orchestration
 # --------------------------------------------------------------------------- #
-def build_payload(target: Target, uploader: StorageUploader, args, cached: bool = True) -> dict:
-    """Run the whole pipeline for one position; return a SkyPatchResponse-shaped dict."""
+def build_payload(target: Target, uploader: StorageUploader, args, cached: bool = True,
+                  progress: ProgressFn | None = None) -> dict:
+    """Run the whole pipeline for one position; return a SkyPatchResponse-shaped dict
+    (image URLs relative to the API, see app/core/urls.py)."""
+    progress = progress or _no_progress
     log.info("=== %s (%s) ===", target.name, target.key)
-    rows1, rows2 = find_epoch_rows(target, args)
-    rows1, rows2 = subsample(rows1, args.max_exposures_per_epoch), subsample(rows2, args.max_exposures_per_epoch)
+    progress("query", 0.02, "Consultando el archivo de IRSA (metadatos SPHEREx)...")
+    visits = find_epoch_rows(target, args)
+    times, ids = visit_ids(visits)  # from the FULL visits, so /epochs and sky-patch agree
+    visits = [subsample_per_detector(subsample(v, args.max_exposures_per_epoch), args.max_per_detector)
+              for v in visits]
+    n_cutouts = sum(len(v) for v in visits)
+    eta = round(math.ceil(n_cutouts / max(args.workers, 1)) * args.seconds_per_cutout + 10)
+    progress("download", 0.05,
+             f"{len(visits)} visitas de SPHEREx encontradas. Descargando {n_cutouts} recortes de IRSA "
+             f"(~{eta} s estimados). Procesamiento en vivo: tarda, no es instantáneo.")
 
-    t1 = Time(float(np.median(rows1["t_min"])), format="mjd", scale="utc")
-    t2 = Time(float(np.median(rows2["t_min"])), format="mjd", scale="utc")
-    months = round((t2 - t1).to_value(u.day) / 30.44)
-    id1, id2 = f"{t1.datetime.year}_M0", f"{t1.datetime.year}_M{months}"
-    log.info("Epochs: %s (%s, %d exp) vs %s (%s, %d exp)",
-             id1, t1.iso[:10], len(rows1), id2, t2.iso[:10], len(rows2))
+    t1 = times[0]
+    for eid, t, v in zip(ids, times, visits):
+        log.info("Visit %s: %s, %d exposures", eid, t.iso[:10], len(v))
 
     center = position_at(target, t1)
     ref_wcs, ref_shape = build_reference_wcs(center, args.fov, args.png_size)
     log.info("Reference grid %dx%d px centred on %.6f, %.6f (epoch-1 position)",
              *ref_shape, center.ra.deg, center.dec.deg)
 
-    e1 = EpochProduct.build(id1, process_rows(rows1, target, ref_wcs, ref_shape, args, id1))
-    e2 = EpochProduct.build(id2, process_rows(rows2, target, ref_wcs, ref_shape, args, id2))
+    counter = DownloadProgress(n_cutouts, args.workers, progress, args.seconds_per_cutout)
+    epochs = [EpochProduct.build(eid, process_rows(v, target, ref_wcs, ref_shape, args, eid, counter))
+              for eid, v in zip(ids, visits)]
+    progress("stack", 0.88, "Apilando por visita y detector...")
 
-    # Broadband = mean of per-detector median stacks, over detectors both epochs share,
-    # so the difference isn't biased by which LVF channels each visit sampled.
+    # Difference: first vs last visit (longest baseline = most motion). Broadband
+    # = mean of per-detector median stacks over the detectors both visits share,
+    # so each detector is only ever subtracted from itself (each sees other wavelengths).
+    e1, e2 = epochs[0], epochs[-1]
     common_dets = sorted(set(e1.detector_stacks) & set(e2.detector_stacks))
     if not common_dets:
-        raise RuntimeError("Epochs share no detectors; cannot difference")
+        raise RuntimeError("First and last visits share no detectors; cannot difference")
     bb1, var1 = e1.stack_of(common_dets)
     bb2, var2 = e2.stack_of(common_dets)
     diff, diff_var = bb2 - bb1, var1 + var2
+    # The PNG uses the display stacks (saturated cores visible); detection uses the clean ones.
+    diff_display = e2.stack_of(common_dets, display=True)[0] - e1.stack_of(common_dets, display=True)[0]
 
+    progress("render", 0.93, "Generando imágenes, resta y espectro...")
     size = args.png_size
     slug = target.slug
     epochs_json = []
-    rgb_limits = {c: display_limits(*(s[0] for e in (e1, e2) if (s := e.stack_of(d))))
+    # Stretch limits come from the CLEAN stacks, so a saturated core clips to
+    # white instead of crushing the rest of the field to black.
+    rgb_limits = {c: display_limits(*(s[0] for e in epochs if (s := e.stack_of(d))))
                   for c, d in RGB_DETECTORS.items()}
-    chem = {m: (e1.chemical_stack(m), e2.chemical_stack(m)) for m in CHEMICAL_WINDOWS_UM}
-    chem_limits = {m: display_limits(*imgs) for m, imgs in chem.items() if any(i is not None for i in imgs)}
+    chem = {m: [e.chemical_stack(m) for e in epochs] for m in CHEMICAL_WINDOWS_UM}
+    chem_limits = {m: display_limits(*(e.chemical_stack(m, display=False) for e in epochs))
+                   for m, imgs in chem.items() if any(i is not None for i in imgs)}
 
-    for n, epoch in enumerate((e1, e2), 1):
+    for n, epoch in enumerate(epochs, 1):
         filters = {}
         for molecule, imgs in chem.items():
             img = imgs[n - 1]
@@ -787,19 +983,29 @@ def build_payload(target: Target, uploader: StorageUploader, args, cached: bool 
             "image_format": "png",
             "image_url": uploader.upload_png(f"{slug}_epoch{n}_rgb.png", render_rgb(epoch, rgb_limits, size)),
             "chemical_filters": filters,
+            "n_exposures": len(epoch.exposures),
         })
 
-    diff_url = uploader.upload_png(f"{slug}_diff.png", render_difference(diff, size))
+    diff_url = uploader.upload_png(f"{slug}_diff.png", render_difference(diff_display, size))
     anomalies = detect_anomalies(diff, diff_var, e1, e2, ref_wcs, args)
     log.info("Difference imaging: %d anomalies above %.1f sigma", len(anomalies), args.snr_threshold)
 
-    spec1 = binned_spectrum(target_samples(e1.exposures))
-    spec2 = binned_spectrum(target_samples(e2.exposures))
-    common_channels = set(spec1) & set(spec2)
-    spectrum = sorted(spec1.values(), key=lambda b: b["wavelength_um"])
-    log.info("Spectrum: %d/102 channels filled (epoch 1); %d channels shared for light curve",
-             len(spectrum), len(common_channels))
+    specs = [binned_spectrum(target_samples(e.exposures)) for e in epochs]
+    common_channels = set.intersection(*(set(sp) for sp in specs if sp)) if any(specs) else set()
+    # Target spectrum: the visit with the most channels (ties: the earliest).
+    best = max(range(len(epochs)), key=lambda i: (len(specs[i]), -i))
+    spectrum = sorted(specs[best].values(), key=lambda b: b["wavelength_um"])
+    saturated = any(e.saturated for e in epochs)
+    if not spectrum:
+        message = SATURATED_MESSAGE if saturated else "Sin fotometría válida en el centro del parche."
+    elif saturated:
+        message = SATURATED_MESSAGE
+    else:
+        message = None
+    log.info("Spectrum: %d/102 channels (visit %s); %d channels shared by all visits; saturated=%s",
+             len(spectrum), epochs[best].epoch_id, len(common_channels), saturated)
 
+    progress("render", 0.99, "Listo.")
     return {
         "target_info": {
             "name": target.name,
@@ -815,23 +1021,26 @@ def build_payload(target: Target, uploader: StorageUploader, args, cached: bool 
         },
         "timelapse_epochs": epochs_json,
         "difference_imaging": {
-            "epoch_a": e2.epoch_id,  # diff = bb2 - bb1
+            "epoch_a": e2.epoch_id,  # diff = last - first
             "epoch_b": e1.epoch_id,
             "image_format": "png",
             "subtracted_image_url": diff_url,
             "detected_anomalies": anomalies,
         },
         "spectrum_102_bands": spectrum,
-        "light_curve": [light_curve_point(e1, spec1, common_channels),
-                        light_curve_point(e2, spec2, common_channels)],
+        "spectrum_epoch_id": epochs[best].epoch_id,
+        "light_curve": [light_curve_point(e, sp, common_channels) for e, sp in zip(epochs, specs)],
+        "saturated": saturated,
+        "spectrum_message": message,
     }
 
 
 def generate_target(target: Target, uploader: StorageUploader, args) -> Path:
     t0 = time.monotonic()
-    model = SkyPatchResponse.model_validate(build_payload(target, uploader, args))
+    model = SkyPatchResponse.model_validate(to_internal(build_payload(target, uploader, args)))
     out_path = REPO_ROOT / "app" / "data" / target.data_file
-    out_path.write_text(json.dumps(model.model_dump(mode="json"), indent=2) + "\n", "utf-8")
+    payload = to_relative(model.model_dump(mode="json"))  # relative image paths on disk
+    out_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", "utf-8")
     log.info("Wrote %s in %.0fs", out_path.relative_to(REPO_ROOT), time.monotonic() - t0)
     return out_path
 
@@ -843,16 +1052,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                      help=f"one or more of: {', '.join(CATALOG)}")
     sel.add_argument("--all", action="store_true", help="process all 5 Golden Path targets")
     p.add_argument("--storage", choices=["local", "supabase"], default="local")
-    p.add_argument("--public-base-url", default="http://localhost:8000",
-                   help="base URL for --storage local (default: %(default)s)")
     p.add_argument("--fov", type=float, default=5.0, help="field of view in arcmin (default: %(default)s)")
     p.add_argument("--png-size", type=int, default=600, help="output PNG edge in px (default: %(default)s)")
     p.add_argument("--workers", type=int, default=4,
                    help="parallel cutout downloads; IRSA returns 503s above ~6 (default: %(default)s)")
     p.add_argument("--max-exposures-per-epoch", type=int, default=None,
                    help="thin each epoch for a quick smoke test (default: use all)")
-    p.add_argument("--epoch-strategy", choices=["six-months", "first-last"], default="six-months",
-                   help="six-months: best-covered visit pair ~6 months apart; first-last: earliest vs latest")
+    p.add_argument("--max-per-detector", type=int, default=None,
+                   help="at most N exposures per detector and visit (live mode uses 1)")
+    p.add_argument("--epoch-strategy", choices=["all", "six-months", "first-last"], default="all",
+                   help="all: every visit in the timelapse, difference = first vs last (default); "
+                        "six-months / first-last: only two visits")
+    p.add_argument("--sia-budget-s", type=float, default=120.0,
+                   help="total seconds (retries included) for each IRSA SIA query")
+    p.add_argument("--download-timeout", type=float, default=120.0, help="per-cutout HTTP timeout (s)")
+    p.add_argument("--retry-base-delay", type=float, default=5.0,
+                   help="first back-off delay after a 429/5xx cutout error (doubles each retry)")
+    p.add_argument("--seconds-per-cutout", type=float, default=12.0,
+                   help="used only for the ETA message (measured ~11-13 s on 2026-11-14)")
     p.add_argument("--epoch-gap-days", type=float, default=30.0, help="gap that separates two visits")
     p.add_argument("--min-exposures", type=int, default=12, help="minimum exposures for a visit to count")
     p.add_argument("--snr-threshold", type=float, default=5.0, help="anomaly threshold in sigma")
@@ -890,7 +1107,7 @@ def main(argv: list[str] | None = None) -> int:
                         format="%(asctime)s %(levelname)-7s %(message)s", datefmt="%H:%M:%S")
     quiet_astropy()
 
-    uploader = make_uploader(args.storage, args.public_base_url)
+    uploader = make_uploader(args.storage)
     keys = list(CATALOG) if args.all else args.target
     failed = []
     for key in keys:
