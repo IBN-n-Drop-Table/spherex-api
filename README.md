@@ -21,6 +21,7 @@ Backend for the **SPHEREx** citizen-science app (NASA Space Apps 2026). It serve
 - [Golden Path pipeline](#golden-path-pipeline-offline)
 - [Notes for frontend developers](#notes-for-frontend-developers)
 - [Adding a target](#adding-a-target)
+- [What the data supports](#what-the-data-supports-object-by-object)
 - [Data used](#data-used)
 - [License](#license)
 
@@ -437,6 +438,20 @@ Read the pair images knowing what the targets are: Barnard's Star and Epsilon In
 Add a `Target(...)` to `app/core/targets.py`, then run the pipeline for it. The API serves every catalogue target that has a JSON file and checks each file against the schema at startup.
 
 Current targets: `WISE_0855`, `BARNARDS_STAR`, `EPSILON_INDI_B`, `RW_AURIGAE`, `R_DRACONIS`. Names are normalised (`wise 0855`, `WISE-0855` and `WISE_0855` are equivalent).
+
+---
+
+## What the data supports, object by object
+
+Some caveats are added to responses **when they are served**, from a static table (`app/core/science_notes.py`); the pre-processed files are never edited. Fields: `science_note` (Spanish, for the UI), `quality` (`unvalidated` or `low`) on `/sky-patch` and on target spectra from `/spectrum`, and a `note` on light-curve points.
+
+**WISE 0855** (`quality: "unvalidated"`). Measured on 2026-11-14 (60 exposures per visit):
+
+| You can say | You cannot say |
+|---|---|
+| The patch follows its proper motion: it is centred on its position at the first visit, ~2′ west of the 2010 catalogue position. | That the broadband spectrum or light curve is WISE 0855's: both are blended with a fixed field star ~11″ away, which dominates at 1 µm. |
+| In detector 6 (4.4–5 µm) its centroid moves 7.9″ west between the first and last visit, against 8.05″ expected. | That the software detects it: none of the anomalies falls on it, and the broadband difference image does not show its dipole. |
+| | That this is the spectrum of a Y dwarf. |
 
 ---
 

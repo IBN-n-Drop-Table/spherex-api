@@ -31,6 +31,12 @@ FallbackReason = Literal["irsa_unavailable", "live_processing_unavailable", "unk
 FALLBACK_REASON_DOC = ("Added field. Machine-readable cause when `fallback` is true: `irsa_unavailable` "
                        "(IRSA timed out, throttled or failed), `live_processing_unavailable` (this server "
                        "has no science stack). null when fallback is false")
+# Response-level data quality, set when the response is served (app/core/science_notes.py).
+ResponseQuality = Literal["unvalidated", "low"]
+SCIENCE_NOTE_DOC = ("Added field, set when served. What can and cannot be claimed from this object's "
+                    "data (Spanish, for the UI). null when there is nothing to add")
+QUALITY_DOC = ("Added field, set when served. `unvalidated`: the measurement is known to be contaminated "
+               "(see science_note); `low`: the target core saturates SPHEREx. null: not flagged")
 
 DETECTION_LABEL = "Detección Asistida por Software (BETA)"
 DETECTION_NOTICE = "Anomalía detectada por software: requiere verificación humana"
@@ -225,6 +231,8 @@ class SkyPatchResponse(_Strict):
     )
     fallback_message: str | None = None
     fallback_reason: FallbackReason | None = Field(default=None, description=FALLBACK_REASON_DOC)
+    science_note: str | None = Field(default=None, description=SCIENCE_NOTE_DOC)
+    quality: ResponseQuality | None = Field(default=None, description=QUALITY_DOC)
 
     @model_validator(mode="after")
     def _consistent(self) -> Self:

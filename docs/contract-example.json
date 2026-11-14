@@ -1324,21 +1324,21 @@
       "date": "2025-05-06",
       "flux_mjy_sr": 0.0484555,
       "variance": 2.18545e-05,
-      "note": null
+      "note": "Sin validar: el flujo está mezclado con una estrella fija vecina (a ~11″); no indica la variabilidad de WISE 0855."
     },
     {
       "epoch_id": "2025_M6",
       "date": "2025-11-07",
       "flux_mjy_sr": 0.0804408,
       "variance": 2.62863e-05,
-      "note": null
+      "note": "Sin validar: el flujo está mezclado con una estrella fija vecina (a ~11″); no indica la variabilidad de WISE 0855."
     },
     {
       "epoch_id": "2025_M12",
       "date": "2026-05-02",
       "flux_mjy_sr": 0.118793,
       "variance": 3.11629e-05,
-      "note": null
+      "note": "Sin validar: el flujo está mezclado con una estrella fija vecina (a ~11″); no indica la variabilidad de WISE 0855."
     }
   ],
   "spectrum_epoch_id": "2025_M6",
@@ -1347,5 +1347,7 @@
   "band": "H2O",
   "fallback": false,
   "fallback_message": null,
-  "fallback_reason": null
+  "fallback_reason": null,
+  "science_note": "Datos sin validar. En la banda ancha, WISE 0855 está mezclado con una estrella fija vecina (a ~11″), que domina en 1 µm: el espectro y la curva de luz de este parche no deben interpretarse como una detección ni como el espectro de una enana Y. Su movimiento solo está confirmado en el detector 6 (4,4–5 µm): el centroide se desplaza 7,9″ al oeste entre la primera y la última visita, frente a 8,05″ esperados. Sí se puede afirmar que el parche sigue su movimiento propio: está centrado en su posición de la primera visita, ~2′ al oeste de la posición de catálogo de 2010.",
+  "quality": "unvalidated"
 }
