@@ -1,0 +1,961 @@
+{
+  "target_info": {
+    "name": "Epsilon Indi B",
+    "ra_deg": 331.076667,
+    "dec_deg": -56.7825,
+    "fov_arcmin": 5.0,
+    "is_cached_golden_path": true
+  },
+  "patch": {
+    "width_px": 600,
+    "height_px": 600,
+    "wcs": {
+      "ctype1": "RA---TAN",
+      "ctype2": "DEC--TAN",
+      "crval1": 331.0952915258239,
+      "crval2": -56.80020302502956,
+      "crpix1": 300.5,
+      "crpix2": 300.5,
+      "cd1_1": -0.0001388888888888889,
+      "cd1_2": 0.0,
+      "cd2_1": 0.0,
+      "cd2_2": 0.0001388888888888889
+    }
+  },
+  "timelapse_epochs": [
+    {
+      "epoch_id": "2025_M0",
+      "date": "2025-04-30T02:01:13Z",
+      "image_format": "png",
+      "image_url": "https://gtehuboddarxnaqrumov.supabase.co/storage/v1/object/public/spherex-golden-path/golden_path/epsilonindib_epoch1_rgb.png",
+      "chemical_filters": {
+        "H2O": "https://gtehuboddarxnaqrumov.supabase.co/storage/v1/object/public/spherex-golden-path/golden_path/epsilonindib_epoch1_h2o.png",
+        "CO2": "https://gtehuboddarxnaqrumov.supabase.co/storage/v1/object/public/spherex-golden-path/golden_path/epsilonindib_epoch1_co2.png"
+      }
+    },
+    {
+      "epoch_id": "2025_M5",
+      "date": "2025-10-06T07:59:24Z",
+      "image_format": "png",
+      "image_url": "https://gtehuboddarxnaqrumov.supabase.co/storage/v1/object/public/spherex-golden-path/golden_path/epsilonindib_epoch2_rgb.png",
+      "chemical_filters": {
+        "H2O": "https://gtehuboddarxnaqrumov.supabase.co/storage/v1/object/public/spherex-golden-path/golden_path/epsilonindib_epoch2_h2o.png",
+        "CO2": "https://gtehuboddarxnaqrumov.supabase.co/storage/v1/object/public/spherex-golden-path/golden_path/epsilonindib_epoch2_co2.png"
+      }
+    }
+  ],
+  "difference_imaging": {
+    "epoch_a": "2025_M5",
+    "epoch_b": "2025_M0",
+    "image_format": "png",
+    "subtracted_image_url": "https://gtehuboddarxnaqrumov.supabase.co/storage/v1/object/public/spherex-golden-path/golden_path/epsilonindib_diff.png",
+    "detected_anomalies": [
+      {
+        "anomaly_id": "anom_01",
+        "ra_deg": 331.094777,
+        "dec_deg": -56.799815,
+        "pixel_x": 302,
+        "pixel_y": 297,
+        "snr_confidence": 186.61,
+        "contamination_flags": [
+          "SOURCE"
+        ],
+        "is_clean_detection": true,
+        "spectrum_epoch_id": "2025_M0",
+        "spectrum_102_bands": [
+          {
+            "wavelength_um": 0.75631,
+            "bandwidth_um": 0.0177,
+            "flux_mjy_sr": 0.00368126,
+            "variance": 6.10764e-05,
+            "detector": 1
+          },
+          {
+            "wavelength_um": 1.0662,
+            "bandwidth_um": 0.02871,
+            "flux_mjy_sr": 2.82454,
+            "variance": 0.000767803,
+            "detector": 1
+          },
+          {
+            "wavelength_um": 1.0919,
+            "bandwidth_um": 0.02944,
+            "flux_mjy_sr": 3.29036,
+            "variance": 0.00132639,
+            "detector": 1
+          },
+          {
+            "wavelength_um": 1.1069,
+            "bandwidth_um": 0.02537,
+            "flux_mjy_sr": 2.06226,
+            "variance": 0.000214641,
+            "detector": 2
+          },
+          {
+            "wavelength_um": 1.1326,
+            "bandwidth_um": 0.02659,
+            "flux_mjy_sr": 1.92782,
+            "variance": 0.000192337,
+            "detector": 2
+          },
+          {
+            "wavelength_um": 1.1598,
+            "bandwidth_um": 0.02772,
+            "flux_mjy_sr": 1.96956,
+            "variance": 0.000227239,
+            "detector": 2
+          },
+          {
+            "wavelength_um": 1.1874,
+            "bandwidth_um": 0.02873,
+            "flux_mjy_sr": 2.96446,
+            "variance": 0.00034445,
+            "detector": 2
+          },
+          {
+            "wavelength_um": 1.2159,
+            "bandwidth_um": 0.02926,
+            "flux_mjy_sr": 4.03566,
+            "variance": 0.000387484,
+            "detector": 2
+          },
+          {
+            "wavelength_um": 1.2449,
+            "bandwidth_um": 0.02995,
+            "flux_mjy_sr": 4.72316,
+            "variance": 0.000448901,
+            "detector": 2
+          },
+          {
+            "wavelength_um": 1.2745,
+            "bandwidth_um": 0.03082,
+            "flux_mjy_sr": 5.82109,
+            "variance": 0.000552132,
+            "detector": 2
+          },
+          {
+            "wavelength_um": 1.3048,
+            "bandwidth_um": 0.03149,
+            "flux_mjy_sr": 5.24251,
+            "variance": 0.000900253,
+            "detector": 2
+          },
+          {
+            "wavelength_um": 1.3356,
+            "bandwidth_um": 0.03207,
+            "flux_mjy_sr": 2.05647,
+            "variance": 0.000394735,
+            "detector": 2
+          },
+          {
+            "wavelength_um": 1.3676,
+            "bandwidth_um": 0.0327,
+            "flux_mjy_sr": 0.884461,
+            "variance": 0.000186482,
+            "detector": 2
+          },
+          {
+            "wavelength_um": 1.4339,
+            "bandwidth_um": 0.03453,
+            "flux_mjy_sr": 1.00816,
+            "variance": 0.000201923,
+            "detector": 2
+          },
+          {
+            "wavelength_um": 1.4684,
+            "bandwidth_um": 0.03568,
+            "flux_mjy_sr": 1.89549,
+            "variance": 0.000340419,
+            "detector": 2
+          },
+          {
+            "wavelength_um": 1.5041,
+            "bandwidth_um": 0.03685,
+            "flux_mjy_sr": 2.60289,
+            "variance": 0.000458025,
+            "detector": 2
+          },
+          {
+            "wavelength_um": 1.5676,
+            "bandwidth_um": 0.03814,
+            "flux_mjy_sr": 5.51848,
+            "variance": 0.000239237,
+            "detector": 2
+          },
+          {
+            "wavelength_um": 1.6265,
+            "bandwidth_um": 0.03916,
+            "flux_mjy_sr": 4.99619,
+            "variance": 0.000113957,
+            "detector": 2
+          },
+          {
+            "wavelength_um": 1.6468,
+            "bandwidth_um": 0.0394,
+            "flux_mjy_sr": 4.78052,
+            "variance": 0.000440774,
+            "detector": 3
+          },
+          {
+            "wavelength_um": 1.6846,
+            "bandwidth_um": 0.04013,
+            "flux_mjy_sr": 4.41905,
+            "variance": 0.000257305,
+            "detector": 3
+          },
+          {
+            "wavelength_um": 1.7238,
+            "bandwidth_um": 0.04143,
+            "flux_mjy_sr": 3.74979,
+            "variance": 0.000230092,
+            "detector": 3
+          },
+          {
+            "wavelength_um": 1.7633,
+            "bandwidth_um": 0.04298,
+            "flux_mjy_sr": 2.7032,
+            "variance": 0.000470825,
+            "detector": 3
+          },
+          {
+            "wavelength_um": 1.8047,
+            "bandwidth_um": 0.04445,
+            "flux_mjy_sr": 1.85378,
+            "variance": 0.00035793,
+            "detector": 3
+          },
+          {
+            "wavelength_um": 1.8471,
+            "bandwidth_um": 0.04588,
+            "flux_mjy_sr": 1.41871,
+            "variance": 0.000131739,
+            "detector": 3
+          },
+          {
+            "wavelength_um": 1.8903,
+            "bandwidth_um": 0.04697,
+            "flux_mjy_sr": 1.80602,
+            "variance": 0.000166836,
+            "detector": 3
+          },
+          {
+            "wavelength_um": 1.934,
+            "bandwidth_um": 0.04778,
+            "flux_mjy_sr": 1.80554,
+            "variance": 0.000161099,
+            "detector": 3
+          },
+          {
+            "wavelength_um": 1.9786,
+            "bandwidth_um": 0.04886,
+            "flux_mjy_sr": 3.03171,
+            "variance": 0.00074881,
+            "detector": 3
+          },
+          {
+            "wavelength_um": 2.0242,
+            "bandwidth_um": 0.05023,
+            "flux_mjy_sr": 3.04554,
+            "variance": 0.000511928,
+            "detector": 3
+          },
+          {
+            "wavelength_um": 2.0712,
+            "bandwidth_um": 0.0517,
+            "flux_mjy_sr": 4.02756,
+            "variance": 0.000664004,
+            "detector": 3
+          },
+          {
+            "wavelength_um": 2.1197,
+            "bandwidth_um": 0.05329,
+            "flux_mjy_sr": 4.21834,
+            "variance": 0.0006784,
+            "detector": 3
+          },
+          {
+            "wavelength_um": 2.1689,
+            "bandwidth_um": 0.05462,
+            "flux_mjy_sr": 3.48412,
+            "variance": 0.000604924,
+            "detector": 3
+          },
+          {
+            "wavelength_um": 2.3757,
+            "bandwidth_um": 0.05929,
+            "flux_mjy_sr": 1.66138,
+            "variance": 0.000126474,
+            "detector": 3
+          },
+          {
+            "wavelength_um": 2.4515,
+            "bandwidth_um": 0.05638,
+            "flux_mjy_sr": 1.67147,
+            "variance": 0.000254299,
+            "detector": 4
+          },
+          {
+            "wavelength_um": 3.6412,
+            "bandwidth_um": 0.1,
+            "flux_mjy_sr": 3.75405,
+            "variance": 0.000513721,
+            "detector": 4
+          },
+          {
+            "wavelength_um": 3.7397,
+            "bandwidth_um": 0.1016,
+            "flux_mjy_sr": 7.42408,
+            "variance": 0.00135218,
+            "detector": 4
+          },
+          {
+            "wavelength_um": 3.8289,
+            "bandwidth_um": 0.03556,
+            "flux_mjy_sr": 7.07442,
+            "variance": 0.00377324,
+            "detector": 5
+          },
+          {
+            "wavelength_um": 3.8621,
+            "bandwidth_um": 0.03567,
+            "flux_mjy_sr": 6.67664,
+            "variance": 0.00169856,
+            "detector": 5
+          },
+          {
+            "wavelength_um": 3.8956,
+            "bandwidth_um": 0.03572,
+            "flux_mjy_sr": 7.0234,
+            "variance": 0.00358355,
+            "detector": 5
+          },
+          {
+            "wavelength_um": 3.9291,
+            "bandwidth_um": 0.03586,
+            "flux_mjy_sr": 7.75766,
+            "variance": 0.00252051,
+            "detector": 5
+          },
+          {
+            "wavelength_um": 3.9634,
+            "bandwidth_um": 0.0362,
+            "flux_mjy_sr": 7.80069,
+            "variance": 0.00277435,
+            "detector": 5
+          },
+          {
+            "wavelength_um": 3.9981,
+            "bandwidth_um": 0.03635,
+            "flux_mjy_sr": 8.72765,
+            "variance": 0.00513861,
+            "detector": 5
+          },
+          {
+            "wavelength_um": 4.0327,
+            "bandwidth_um": 0.03633,
+            "flux_mjy_sr": 7.9303,
+            "variance": 0.00202487,
+            "detector": 5
+          },
+          {
+            "wavelength_um": 4.0678,
+            "bandwidth_um": 0.03637,
+            "flux_mjy_sr": 8.11759,
+            "variance": 0.00426297,
+            "detector": 5
+          },
+          {
+            "wavelength_um": 4.1033,
+            "bandwidth_um": 0.03641,
+            "flux_mjy_sr": 8.12304,
+            "variance": 0.00423921,
+            "detector": 5
+          },
+          {
+            "wavelength_um": 4.1389,
+            "bandwidth_um": 0.03662,
+            "flux_mjy_sr": 7.57155,
+            "variance": 0.00400961,
+            "detector": 5
+          },
+          {
+            "wavelength_um": 4.2108,
+            "bandwidth_um": 0.03637,
+            "flux_mjy_sr": 5.41817,
+            "variance": 0.00287651,
+            "detector": 5
+          },
+          {
+            "wavelength_um": 4.247,
+            "bandwidth_um": 0.03646,
+            "flux_mjy_sr": 4.71304,
+            "variance": 0.00261084,
+            "detector": 5
+          },
+          {
+            "wavelength_um": 4.2835,
+            "bandwidth_um": 0.037,
+            "flux_mjy_sr": 5.09977,
+            "variance": 0.00277122,
+            "detector": 5
+          },
+          {
+            "wavelength_um": 4.3464,
+            "bandwidth_um": 0.03783,
+            "flux_mjy_sr": 4.66784,
+            "variance": 0.000767811,
+            "detector": 5
+          },
+          {
+            "wavelength_um": 4.4051,
+            "bandwidth_um": 0.03784,
+            "flux_mjy_sr": 3.95438,
+            "variance": 0.000312971,
+            "detector": 5
+          },
+          {
+            "wavelength_um": 4.4308,
+            "bandwidth_um": 0.03656,
+            "flux_mjy_sr": 3.21817,
+            "variance": 0.00124072,
+            "detector": 6
+          },
+          {
+            "wavelength_um": 4.4624,
+            "bandwidth_um": 0.0358,
+            "flux_mjy_sr": 2.894,
+            "variance": 0.000699186,
+            "detector": 6
+          },
+          {
+            "wavelength_um": 4.4947,
+            "bandwidth_um": 0.03559,
+            "flux_mjy_sr": 2.51337,
+            "variance": 0.000624209,
+            "detector": 6
+          },
+          {
+            "wavelength_um": 4.5273,
+            "bandwidth_um": 0.03565,
+            "flux_mjy_sr": 2.23585,
+            "variance": 0.000861602,
+            "detector": 6
+          },
+          {
+            "wavelength_um": 4.5602,
+            "bandwidth_um": 0.0359,
+            "flux_mjy_sr": 2.91239,
+            "variance": 0.00379889,
+            "detector": 6
+          },
+          {
+            "wavelength_um": 4.5936,
+            "bandwidth_um": 0.0364,
+            "flux_mjy_sr": 2.32325,
+            "variance": 0.000907553,
+            "detector": 6
+          },
+          {
+            "wavelength_um": 4.627,
+            "bandwidth_um": 0.03686,
+            "flux_mjy_sr": 2.34587,
+            "variance": 0.000896811,
+            "detector": 6
+          },
+          {
+            "wavelength_um": 4.6608,
+            "bandwidth_um": 0.03716,
+            "flux_mjy_sr": 3.08467,
+            "variance": 0.0011767,
+            "detector": 6
+          },
+          {
+            "wavelength_um": 4.6945,
+            "bandwidth_um": 0.03745,
+            "flux_mjy_sr": 3.03131,
+            "variance": 0.00244712,
+            "detector": 6
+          },
+          {
+            "wavelength_um": 4.729,
+            "bandwidth_um": 0.03669,
+            "flux_mjy_sr": 2.59944,
+            "variance": 0.00222134,
+            "detector": 6
+          },
+          {
+            "wavelength_um": 4.7982,
+            "bandwidth_um": 0.03576,
+            "flux_mjy_sr": 3.00354,
+            "variance": 0.00305695,
+            "detector": 6
+          },
+          {
+            "wavelength_um": 4.8327,
+            "bandwidth_um": 0.0358,
+            "flux_mjy_sr": 2.22011,
+            "variance": 0.00289536,
+            "detector": 6
+          },
+          {
+            "wavelength_um": 4.9753,
+            "bandwidth_um": 0.03675,
+            "flux_mjy_sr": 3.19751,
+            "variance": 0.00165126,
+            "detector": 6
+          }
+        ]
+      }
+    ]
+  },
+  "spectrum_102_bands": [
+    {
+      "wavelength_um": 0.7564,
+      "bandwidth_um": 0.0177,
+      "flux_mjy_sr": 0.00608935,
+      "variance": 7.11986e-05,
+      "detector": 1
+    },
+    {
+      "wavelength_um": 1.0791,
+      "bandwidth_um": 0.02908,
+      "flux_mjy_sr": 3.41328,
+      "variance": 0.000543311,
+      "detector": 1
+    },
+    {
+      "wavelength_um": 1.107,
+      "bandwidth_um": 0.02538,
+      "flux_mjy_sr": 2.22791,
+      "variance": 0.000229432,
+      "detector": 2
+    },
+    {
+      "wavelength_um": 1.1327,
+      "bandwidth_um": 0.02659,
+      "flux_mjy_sr": 2.07957,
+      "variance": 0.000205742,
+      "detector": 2
+    },
+    {
+      "wavelength_um": 1.16,
+      "bandwidth_um": 0.02773,
+      "flux_mjy_sr": 2.20737,
+      "variance": 0.000216553,
+      "detector": 2
+    },
+    {
+      "wavelength_um": 1.1876,
+      "bandwidth_um": 0.02873,
+      "flux_mjy_sr": 3.03665,
+      "variance": 0.000302294,
+      "detector": 2
+    },
+    {
+      "wavelength_um": 1.216,
+      "bandwidth_um": 0.02926,
+      "flux_mjy_sr": 4.32136,
+      "variance": 0.000415832,
+      "detector": 2
+    },
+    {
+      "wavelength_um": 1.2451,
+      "bandwidth_um": 0.02995,
+      "flux_mjy_sr": 6.08991,
+      "variance": 0.000666845,
+      "detector": 2
+    },
+    {
+      "wavelength_um": 1.2747,
+      "bandwidth_um": 0.03083,
+      "flux_mjy_sr": 5.54109,
+      "variance": 0.000461657,
+      "detector": 2
+    },
+    {
+      "wavelength_um": 1.305,
+      "bandwidth_um": 0.0315,
+      "flux_mjy_sr": 5.79853,
+      "variance": 0.00099472,
+      "detector": 2
+    },
+    {
+      "wavelength_um": 1.3358,
+      "bandwidth_um": 0.03207,
+      "flux_mjy_sr": 2.16742,
+      "variance": 0.000413105,
+      "detector": 2
+    },
+    {
+      "wavelength_um": 1.3678,
+      "bandwidth_um": 0.03271,
+      "flux_mjy_sr": 0.94288,
+      "variance": 0.000196475,
+      "detector": 2
+    },
+    {
+      "wavelength_um": 1.4341,
+      "bandwidth_um": 0.03453,
+      "flux_mjy_sr": 1.94084,
+      "variance": 0.000613687,
+      "detector": 2
+    },
+    {
+      "wavelength_um": 1.4686,
+      "bandwidth_um": 0.03569,
+      "flux_mjy_sr": 1.75864,
+      "variance": 0.000277936,
+      "detector": 2
+    },
+    {
+      "wavelength_um": 1.5043,
+      "bandwidth_um": 0.03686,
+      "flux_mjy_sr": 2.97043,
+      "variance": 0.000517806,
+      "detector": 2
+    },
+    {
+      "wavelength_um": 1.5693,
+      "bandwidth_um": 0.03814,
+      "flux_mjy_sr": 6.41674,
+      "variance": 0.000287268,
+      "detector": 2
+    },
+    {
+      "wavelength_um": 1.624,
+      "bandwidth_um": 0.03916,
+      "flux_mjy_sr": 5.38535,
+      "variance": 0.00010925,
+      "detector": 2
+    },
+    {
+      "wavelength_um": 1.6471,
+      "bandwidth_um": 0.0394,
+      "flux_mjy_sr": 4.98933,
+      "variance": 0.000459729,
+      "detector": 3
+    },
+    {
+      "wavelength_um": 1.6849,
+      "bandwidth_um": 0.04013,
+      "flux_mjy_sr": 4.7227,
+      "variance": 0.000274014,
+      "detector": 3
+    },
+    {
+      "wavelength_um": 1.724,
+      "bandwidth_um": 0.04144,
+      "flux_mjy_sr": 3.78723,
+      "variance": 0.000221137,
+      "detector": 3
+    },
+    {
+      "wavelength_um": 1.7635,
+      "bandwidth_um": 0.04298,
+      "flux_mjy_sr": 2.73335,
+      "variance": 0.000477069,
+      "detector": 3
+    },
+    {
+      "wavelength_um": 1.8049,
+      "bandwidth_um": 0.04446,
+      "flux_mjy_sr": 1.88935,
+      "variance": 0.00036586,
+      "detector": 3
+    },
+    {
+      "wavelength_um": 1.8474,
+      "bandwidth_um": 0.04589,
+      "flux_mjy_sr": 1.3024,
+      "variance": 0.000106894,
+      "detector": 3
+    },
+    {
+      "wavelength_um": 1.8905,
+      "bandwidth_um": 0.04698,
+      "flux_mjy_sr": 1.94183,
+      "variance": 0.000178648,
+      "detector": 3
+    },
+    {
+      "wavelength_um": 1.9342,
+      "bandwidth_um": 0.04778,
+      "flux_mjy_sr": 1.90838,
+      "variance": 0.000169654,
+      "detector": 3
+    },
+    {
+      "wavelength_um": 1.9789,
+      "bandwidth_um": 0.04887,
+      "flux_mjy_sr": 2.24341,
+      "variance": 0.000405256,
+      "detector": 3
+    },
+    {
+      "wavelength_um": 2.0244,
+      "bandwidth_um": 0.05023,
+      "flux_mjy_sr": 3.28122,
+      "variance": 0.000548616,
+      "detector": 3
+    },
+    {
+      "wavelength_um": 2.0715,
+      "bandwidth_um": 0.0517,
+      "flux_mjy_sr": 4.24538,
+      "variance": 0.000697269,
+      "detector": 3
+    },
+    {
+      "wavelength_um": 2.1199,
+      "bandwidth_um": 0.0533,
+      "flux_mjy_sr": 4.38274,
+      "variance": 0.000704916,
+      "detector": 3
+    },
+    {
+      "wavelength_um": 2.1692,
+      "bandwidth_um": 0.05463,
+      "flux_mjy_sr": 3.02467,
+      "variance": 0.000409978,
+      "detector": 3
+    },
+    {
+      "wavelength_um": 2.376,
+      "bandwidth_um": 0.05931,
+      "flux_mjy_sr": 1.85656,
+      "variance": 0.000125593,
+      "detector": 3
+    },
+    {
+      "wavelength_um": 2.4526,
+      "bandwidth_um": 0.05642,
+      "flux_mjy_sr": 2.18926,
+      "variance": 0.000370585,
+      "detector": 4
+    },
+    {
+      "wavelength_um": 3.6418,
+      "bandwidth_um": 0.1,
+      "flux_mjy_sr": 4.14332,
+      "variance": 0.000564831,
+      "detector": 4
+    },
+    {
+      "wavelength_um": 3.7403,
+      "bandwidth_um": 0.1016,
+      "flux_mjy_sr": 5.94917,
+      "variance": 0.000778154,
+      "detector": 4
+    },
+    {
+      "wavelength_um": 3.829,
+      "bandwidth_um": 0.03556,
+      "flux_mjy_sr": 7.51748,
+      "variance": 0.00398393,
+      "detector": 5
+    },
+    {
+      "wavelength_um": 3.8623,
+      "bandwidth_um": 0.03567,
+      "flux_mjy_sr": 7.48009,
+      "variance": 0.00190115,
+      "detector": 5
+    },
+    {
+      "wavelength_um": 3.8958,
+      "bandwidth_um": 0.03572,
+      "flux_mjy_sr": 12.8816,
+      "variance": 0.0113216,
+      "detector": 5
+    },
+    {
+      "wavelength_um": 3.9293,
+      "bandwidth_um": 0.03586,
+      "flux_mjy_sr": 7.7177,
+      "variance": 0.00183178,
+      "detector": 5
+    },
+    {
+      "wavelength_um": 3.9636,
+      "bandwidth_um": 0.0362,
+      "flux_mjy_sr": 8.91867,
+      "variance": 0.00243439,
+      "detector": 5
+    },
+    {
+      "wavelength_um": 3.9983,
+      "bandwidth_um": 0.03635,
+      "flux_mjy_sr": 8.57126,
+      "variance": 0.00432678,
+      "detector": 5
+    },
+    {
+      "wavelength_um": 4.0329,
+      "bandwidth_um": 0.03633,
+      "flux_mjy_sr": 9.00323,
+      "variance": 0.00228705,
+      "detector": 5
+    },
+    {
+      "wavelength_um": 4.068,
+      "bandwidth_um": 0.03637,
+      "flux_mjy_sr": 8.7928,
+      "variance": 0.00459602,
+      "detector": 5
+    },
+    {
+      "wavelength_um": 4.1035,
+      "bandwidth_um": 0.03641,
+      "flux_mjy_sr": 8.83212,
+      "variance": 0.00460062,
+      "detector": 5
+    },
+    {
+      "wavelength_um": 4.1391,
+      "bandwidth_um": 0.03662,
+      "flux_mjy_sr": 7.66572,
+      "variance": 0.00354042,
+      "detector": 5
+    },
+    {
+      "wavelength_um": 4.211,
+      "bandwidth_um": 0.03637,
+      "flux_mjy_sr": 6.23074,
+      "variance": 0.00328855,
+      "detector": 5
+    },
+    {
+      "wavelength_um": 4.2472,
+      "bandwidth_um": 0.03646,
+      "flux_mjy_sr": 5.42742,
+      "variance": 0.00297714,
+      "detector": 5
+    },
+    {
+      "wavelength_um": 4.2837,
+      "bandwidth_um": 0.037,
+      "flux_mjy_sr": 5.63951,
+      "variance": 0.0030439,
+      "detector": 5
+    },
+    {
+      "wavelength_um": 4.3476,
+      "bandwidth_um": 0.03783,
+      "flux_mjy_sr": 4.64605,
+      "variance": 0.000632001,
+      "detector": 5
+    },
+    {
+      "wavelength_um": 4.4047,
+      "bandwidth_um": 0.03784,
+      "flux_mjy_sr": 4.28546,
+      "variance": 0.000318319,
+      "detector": 5
+    },
+    {
+      "wavelength_um": 4.431,
+      "bandwidth_um": 0.03655,
+      "flux_mjy_sr": 3.73735,
+      "variance": 0.00152876,
+      "detector": 6
+    },
+    {
+      "wavelength_um": 4.4626,
+      "bandwidth_um": 0.0358,
+      "flux_mjy_sr": 3.20263,
+      "variance": 0.00076345,
+      "detector": 6
+    },
+    {
+      "wavelength_um": 4.4949,
+      "bandwidth_um": 0.03559,
+      "flux_mjy_sr": 2.70072,
+      "variance": 0.000631762,
+      "detector": 6
+    },
+    {
+      "wavelength_um": 4.5275,
+      "bandwidth_um": 0.03565,
+      "flux_mjy_sr": 2.41966,
+      "variance": 0.000920114,
+      "detector": 6
+    },
+    {
+      "wavelength_um": 4.5604,
+      "bandwidth_um": 0.03591,
+      "flux_mjy_sr": 2.74723,
+      "variance": 0.00239605,
+      "detector": 6
+    },
+    {
+      "wavelength_um": 4.5938,
+      "bandwidth_um": 0.03641,
+      "flux_mjy_sr": 2.73766,
+      "variance": 0.00110894,
+      "detector": 6
+    },
+    {
+      "wavelength_um": 4.6272,
+      "bandwidth_um": 0.03686,
+      "flux_mjy_sr": 2.48113,
+      "variance": 0.0008775,
+      "detector": 6
+    },
+    {
+      "wavelength_um": 4.661,
+      "bandwidth_um": 0.03716,
+      "flux_mjy_sr": 3.47258,
+      "variance": 0.00131076,
+      "detector": 6
+    },
+    {
+      "wavelength_um": 4.6947,
+      "bandwidth_um": 0.03745,
+      "flux_mjy_sr": 3.46581,
+      "variance": 0.00273222,
+      "detector": 6
+    },
+    {
+      "wavelength_um": 4.7292,
+      "bandwidth_um": 0.03669,
+      "flux_mjy_sr": 2.77423,
+      "variance": 0.0023468,
+      "detector": 6
+    },
+    {
+      "wavelength_um": 4.7984,
+      "bandwidth_um": 0.03576,
+      "flux_mjy_sr": 2.97654,
+      "variance": 0.00260714,
+      "detector": 6
+    },
+    {
+      "wavelength_um": 4.8329,
+      "bandwidth_um": 0.0358,
+      "flux_mjy_sr": 3.1029,
+      "variance": 0.00390592,
+      "detector": 6
+    },
+    {
+      "wavelength_um": 4.9755,
+      "bandwidth_um": 0.03675,
+      "flux_mjy_sr": 3.31702,
+      "variance": 0.00158927,
+      "detector": 6
+    }
+  ],
+  "light_curve": [
+    {
+      "epoch_id": "2025_M0",
+      "date": "2025-04-30",
+      "flux_mjy_sr": 4.29014,
+      "variance": 2.32652e-05
+    },
+    {
+      "epoch_id": "2025_M5",
+      "date": "2025-10-06",
+      "flux_mjy_sr": 4.14814,
+      "variance": 2.37897e-05
+    }
+  ]
+}

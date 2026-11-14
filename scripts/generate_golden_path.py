@@ -11,10 +11,16 @@ For each target this script:
      subtracts ZODI from IMAGE, evaluates the spectral WCS at the target,
      measures aperture photometry, and reprojects IMAGE/VARIANCE/FLAGS onto
      a common north-up grid centred on the target at epoch 1.
+     The grid covers exactly --fov arcmin; the --png-size PNGs are an exact
+     integer upscale of it, described by the `patch.wcs` block in the JSON.
   4. Renders broadband RGB, H2O / CO2 filter and difference PNGs.
-  5. Detects anomalies in (epoch 2 - epoch 1) with OpenCV.
+  5. Detects anomalies in (epoch 2 - epoch 1) with OpenCV, merges split
+     contours closer than --dedup-radius-px, and measures a 102-band
+     spectrum at every anomaly.
   6. Bins photometry into the 102 LVF channels and builds a light curve.
   7. Validates against SkyPatchResponse and writes app/data/<target>.json.
+
+The same code path serves live (uncached) API jobs through `build_payload`.
 
 Run `python scripts/generate_golden_path.py --help` for options.
 """
@@ -57,11 +63,19 @@ from astroquery.ipac.irsa import Irsa
 from matplotlib import colormaps
 from matplotlib.colors import LinearSegmentedColormap
 from PIL import Image
+from pyvo.dal.exceptions import DALServiceError
 from reproject import reproject_interp
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
+from app.core.patch_geometry import (  # noqa: E402
+    grid_to_png,
+    grid_to_png_float,
+    patch_wcs,
+    stack_grid_size,
+    suppress_duplicates,
+)
 from app.core.targets import CATALOG, Target  # noqa: E402
 from app.schemas.sky_patch import SkyPatchResponse  # noqa: E402
 
@@ -79,6 +93,7 @@ RETRYABLE_ERRORS = (
     urllib.error.URLError,
     http.client.IncompleteRead,
     ConnectionError,
+    DALServiceError,  # IRSA SIA answers 502 "Proxy Error" when busy
 )
 
 PIXEL_SCALE_ARCSEC = 6.15  # SPHEREx native plate scale
@@ -123,14 +138,17 @@ class StorageUploader(ABC):
 
 
 class LocalStorage(StorageUploader):
-    def __init__(self, base_url: str, directory: Path | None = None) -> None:
-        self.directory = directory or REPO_ROOT / "app" / "static" / "golden_path"
+    """Writes under app/static/<url_path>/, which the API serves at /static/<url_path>/."""
+
+    def __init__(self, base_url: str, url_path: str = "golden_path") -> None:
+        self.url_path = url_path.strip("/")
+        self.directory = REPO_ROOT / "app" / "static" / self.url_path
         self.directory.mkdir(parents=True, exist_ok=True)
         self.base_url = base_url.rstrip("/")
 
     def upload_png(self, filename: str, data: bytes) -> str:
         (self.directory / filename).write_bytes(data)
-        return f"{self.base_url}/static/golden_path/{filename}"
+        return f"{self.base_url}/static/{self.url_path}/{filename}"
 
 
 class SupabaseStorage(StorageUploader):
@@ -286,9 +304,22 @@ class Exposure:
     image: np.ndarray  # zodi-subtracted, on reference grid, artifacts = NaN
     variance: np.ndarray  # on reference grid
     flags: np.ndarray  # raw bitmask on reference grid (float, NaN = no data)
+    wave_map: np.ndarray  # LVF wavelength (um) at each reference-grid pixel
+    bw_map: np.ndarray  # LVF bandwidth (um) at each reference-grid pixel
     flag_names: dict[int, str]
-    ap_flux: float | None
+    ap_flux: float | None  # target photometry, measured on the native cutout
     ap_var: float | None
+
+
+@dataclass(frozen=True)
+class Sample:
+    """One exposure's photometry at one sky position."""
+
+    detector: int
+    wavelength_um: float
+    bandwidth_um: float
+    flux: float
+    var: float
 
 
 def decode_flag_names(header: fits.Header) -> dict[int, str]:
@@ -348,6 +379,15 @@ def process_row(row, target: Target, ref_wcs: WCS, ref_shape: tuple[int, int], a
         wavelength_um = float(wl.to_value(u.um))
         bandwidth_um = float(bw.to_value(u.um))
 
+        # The LVF wavelength changes across the detector, so anomaly spectra
+        # need the wavelength at their own position, not at the target's.
+        gy, gx = np.indices(ref_shape)
+        grid_sky = deepcopy(ref_wcs).pixel_to_world(gx.ravel(), gy.ravel())
+        raw_x, raw_y = spatial_wcs.world_to_pixel(grid_sky)
+        wl_grid, bw_grid = spectral_wcs.pixel_to_world(raw_x, raw_y)
+        wave_map = np.asarray(wl_grid.to_value(u.um), dtype=np.float32).reshape(ref_shape)
+        bw_map = np.asarray(bw_grid.to_value(u.um), dtype=np.float32).reshape(ref_shape)
+
     detector = header.get("DETECTOR")
     if detector is None:
         detector = int(str(row["energy_bandpassname"]).rsplit("D", 1)[-1])
@@ -384,6 +424,8 @@ def process_row(row, target: Target, ref_wcs: WCS, ref_shape: tuple[int, int], a
         image=reprojected[0],
         variance=reprojected[1],
         flags=reprojected[2],
+        wave_map=wave_map,
+        bw_map=bw_map,
         flag_names=flag_names,
         ap_flux=ap_flux,
         ap_var=ap_var,
@@ -414,16 +456,17 @@ def process_rows(rows: Table, target: Target, ref_wcs: WCS, ref_shape, args, lab
 # --------------------------------------------------------------------------- #
 # Stacking
 # --------------------------------------------------------------------------- #
-def build_reference_wcs(center: SkyCoord, fov_arcmin: float) -> tuple[WCS, tuple[int, int]]:
-    """North-up TAN grid at native SPHEREx sampling; odd size so the target
-    sits on the central pixel."""
-    n = int(math.ceil(fov_arcmin * 60 / PIXEL_SCALE_ARCSEC))
-    n += (n + 1) % 2
+def build_reference_wcs(center: SkyCoord, fov_arcmin: float, png_size: int) -> tuple[WCS, tuple[int, int]]:
+    """North-up, square-pixel TAN grid covering exactly fov_arcmin, at about
+    native SPHEREx sampling (5' -> 50 px of 6.0"). It has the same centre and
+    footprint as the PNG `patch.wcs`, which is this grid scaled by png_size / n."""
+    n = stack_grid_size(fov_arcmin, png_size, PIXEL_SCALE_ARCSEC)
+    scale_deg = fov_arcmin / 60.0 / n
     w = WCS(naxis=2)
     w.wcs.ctype = ["RA---TAN", "DEC--TAN"]
     w.wcs.crval = [center.ra.deg, center.dec.deg]
     w.wcs.crpix = [(n + 1) / 2, (n + 1) / 2]
-    w.wcs.cdelt = [-PIXEL_SCALE_ARCSEC / 3600, PIXEL_SCALE_ARCSEC / 3600]
+    w.wcs.cdelt = [-scale_deg, scale_deg]
     w.wcs.cunit = ["deg", "deg"]
     return w, (n, n)
 
@@ -556,13 +599,6 @@ def render_difference(diff: np.ndarray, size: int) -> bytes:
     return to_png(rgba[..., :3], size)
 
 
-def to_png_xy(x: float, y: float, shape: tuple[int, int], size: int) -> tuple[int, int]:
-    ny, nx = shape
-    px = int(min(size - 1, max(0, (x + 0.5) * size / nx)))
-    py = int(min(size - 1, max(0, (ny - 0.5 - y) * size / ny)))
-    return px, py
-
-
 # --------------------------------------------------------------------------- #
 # Science products
 # --------------------------------------------------------------------------- #
@@ -574,6 +610,7 @@ def detect_anomalies(
     diff: np.ndarray, diff_var: np.ndarray, e1: EpochProduct, e2: EpochProduct,
     ref_wcs: WCS, args,
 ) -> list[dict]:
+    """Anomalies in diff = e2 - e1 (epoch_a = e2, epoch_b = e1)."""
     snr = diff / np.sqrt(diff_var)
     finite = np.isfinite(snr)
     if finite.sum() < 10:
@@ -598,14 +635,27 @@ def detect_anomalies(
             y = float(np.average(rows, weights=w))
             x = float(np.average(cols, weights=w))
             snr_ap = abs(float(np.sum(diff[region]))) / math.sqrt(float(np.sum(diff_var[region])))
-            candidates.append((snr_ap, x, y))
+            candidates.append((snr_ap, x, y, sign))
+
+    # Split contours of one source (e.g. the two lobes of a slightly
+    # mis-subtracted star) land a few px apart: keep the strongest only.
+    n_grid = z.shape[0]
+    png_xy = [grid_to_png_float(x, y, n_grid, args.png_size) for _, x, y, _ in candidates]
+    kept = suppress_duplicates([(c[0], *xy) for c, xy in zip(candidates, png_xy)], args.dedup_radius_px)
+    if len(kept) < len(candidates):
+        log.info("Merged %d duplicate detection(s) within %.0f px", len(candidates) - len(kept),
+                 args.dedup_radius_px)
 
     anomalies = []
-    for i, (snr_ap, x, y) in enumerate(sorted(candidates, reverse=True)[: args.max_anomalies], 1):
+    for i, idx in enumerate(kept[: args.max_anomalies], 1):
+        snr_ap, x, y, sign = candidates[idx]
         r, c = int(round(y)), int(round(x))
         flags = sorted(e1.flags_at(r, c, args.flag_majority) | e2.flags_at(r, c, args.flag_majority))
         world = ref_wcs.pixel_to_world(x, y)
-        px, py = to_png_xy(x, y, z.shape, args.png_size)
+        px, py = grid_to_png(x, y, n_grid, args.png_size)
+        # Measure where the source is present: epoch 2 if it brightened, epoch 1 if it faded.
+        source_epoch = e2 if sign > 0 else e1
+        spectrum = binned_spectrum(grid_samples(source_epoch.exposures, x, y, args))
         anomalies.append({
             "anomaly_id": f"anom_{i:02d}",
             "ra_deg": round(float(world.ra.deg), 6),
@@ -615,28 +665,54 @@ def detect_anomalies(
             "snr_confidence": round(snr_ap, 2),
             "contamination_flags": flags,
             "is_clean_detection": not (set(flags) & ARTIFACT_FLAGS),
+            "spectrum_epoch_id": source_epoch.epoch_id,
+            "spectrum_102_bands": sorted(spectrum.values(), key=lambda b: b["wavelength_um"]),
         })
     return anomalies
 
 
-def binned_spectrum(exposures: list[Exposure]) -> dict[tuple[int, int], dict]:
-    """Inverse-variance mean of aperture photometry in 6 x 17 LVF channels."""
-    buckets: dict[tuple[int, int], list[Exposure]] = {}
+def target_samples(exposures: list[Exposure]) -> list[Sample]:
+    return [Sample(e.detector, e.wavelength_um, e.bandwidth_um, e.ap_flux, e.ap_var)
+            for e in exposures if e.ap_flux is not None and e.ap_var is not None]
+
+
+def grid_samples(exposures: list[Exposure], x: float, y: float, args) -> list[Sample]:
+    """Aperture photometry at a reference-grid position in every exposure.
+
+    Uses the reprojected images (bilinear, ~native scale). The variance is
+    slightly underestimated because neighbouring reprojected pixels are
+    correlated, which is acceptable for display spectra."""
+    r, c = int(round(y)), int(round(x))
+    out = []
     for e in exposures:
-        if e.ap_flux is None or not e.ap_var or e.ap_var <= 0 or e.detector not in LVF_BANDS:
+        wl, bw = float(e.wave_map[r, c]), float(e.bw_map[r, c])
+        if not (math.isfinite(wl) and math.isfinite(bw) and wl > 0 and bw > 0):
             continue
-        lo, hi = LVF_BANDS[e.detector]
+        flux, var = aperture_photometry(e.image, e.variance, x, y,
+                                        args.aperture_px, args.annulus_px[0], args.annulus_px[1])
+        if flux is not None and var is not None:
+            out.append(Sample(e.detector, wl, bw, flux, var))
+    return out
+
+
+def binned_spectrum(samples: list[Sample]) -> dict[tuple[int, int], dict]:
+    """Inverse-variance mean of aperture photometry in 6 x 17 LVF channels."""
+    buckets: dict[tuple[int, int], list[Sample]] = {}
+    for s in samples:
+        if not (s.var > 0 and math.isfinite(s.flux)) or s.detector not in LVF_BANDS:
+            continue
+        lo, hi = LVF_BANDS[s.detector]
         edges = np.geomspace(lo, hi, CHANNELS_PER_DETECTOR + 1)
-        ch = int(np.clip(np.searchsorted(edges, e.wavelength_um) - 1, 0, CHANNELS_PER_DETECTOR - 1))
-        buckets.setdefault((e.detector, ch), []).append(e)
+        ch = int(np.clip(np.searchsorted(edges, s.wavelength_um) - 1, 0, CHANNELS_PER_DETECTOR - 1))
+        buckets.setdefault((s.detector, ch), []).append(s)
 
     spectrum = {}
     for key, members in buckets.items():
-        w = np.array([1 / m.ap_var for m in members])
+        w = np.array([1 / m.var for m in members])
         spectrum[key] = {
             "wavelength_um": sig(float(np.average([m.wavelength_um for m in members], weights=w)), 5),
             "bandwidth_um": sig(float(np.mean([m.bandwidth_um for m in members])), 4),
-            "flux_mjy_sr": sig(float(np.average([m.ap_flux for m in members], weights=w))),
+            "flux_mjy_sr": sig(float(np.average([m.flux for m in members], weights=w))),
             "variance": sig(float(1 / w.sum())),
             "detector": key[0],
         }
@@ -658,8 +734,8 @@ def light_curve_point(epoch: EpochProduct, spec: dict, common: set) -> dict:
 # --------------------------------------------------------------------------- #
 # Orchestration
 # --------------------------------------------------------------------------- #
-def generate_target(target: Target, uploader: StorageUploader, args) -> Path:
-    t0 = time.monotonic()
+def build_payload(target: Target, uploader: StorageUploader, args, cached: bool = True) -> dict:
+    """Run the whole pipeline for one position; return a SkyPatchResponse-shaped dict."""
     log.info("=== %s (%s) ===", target.name, target.key)
     rows1, rows2 = find_epoch_rows(target, args)
     rows1, rows2 = subsample(rows1, args.max_exposures_per_epoch), subsample(rows2, args.max_exposures_per_epoch)
@@ -672,7 +748,7 @@ def generate_target(target: Target, uploader: StorageUploader, args) -> Path:
              id1, t1.iso[:10], len(rows1), id2, t2.iso[:10], len(rows2))
 
     center = position_at(target, t1)
-    ref_wcs, ref_shape = build_reference_wcs(center, args.fov)
+    ref_wcs, ref_shape = build_reference_wcs(center, args.fov, args.png_size)
     log.info("Reference grid %dx%d px centred on %.6f, %.6f (epoch-1 position)",
              *ref_shape, center.ra.deg, center.dec.deg)
 
@@ -708,6 +784,7 @@ def generate_target(target: Target, uploader: StorageUploader, args) -> Path:
         epochs_json.append({
             "epoch_id": epoch.epoch_id,
             "date": epoch.when.isoformat().replace("+00:00", "Z"),
+            "image_format": "png",
             "image_url": uploader.upload_png(f"{slug}_epoch{n}_rgb.png", render_rgb(epoch, rgb_limits, size)),
             "chemical_filters": filters,
         })
@@ -716,28 +793,43 @@ def generate_target(target: Target, uploader: StorageUploader, args) -> Path:
     anomalies = detect_anomalies(diff, diff_var, e1, e2, ref_wcs, args)
     log.info("Difference imaging: %d anomalies above %.1f sigma", len(anomalies), args.snr_threshold)
 
-    spec1, spec2 = binned_spectrum(e1.exposures), binned_spectrum(e2.exposures)
+    spec1 = binned_spectrum(target_samples(e1.exposures))
+    spec2 = binned_spectrum(target_samples(e2.exposures))
     common_channels = set(spec1) & set(spec2)
     spectrum = sorted(spec1.values(), key=lambda b: b["wavelength_um"])
     log.info("Spectrum: %d/102 channels filled (epoch 1); %d channels shared for light curve",
              len(spectrum), len(common_channels))
 
-    payload = {
+    return {
         "target_info": {
             "name": target.name,
             "ra_deg": target.ra_deg,
             "dec_deg": target.dec_deg,
             "fov_arcmin": args.fov,
-            "is_cached_golden_path": True,
+            "is_cached_golden_path": cached,
+        },
+        "patch": {
+            "width_px": size,
+            "height_px": size,
+            "wcs": patch_wcs(center.ra.deg, center.dec.deg, args.fov, size, size),
         },
         "timelapse_epochs": epochs_json,
-        "difference_imaging": {"subtracted_image_url": diff_url, "detected_anomalies": anomalies},
+        "difference_imaging": {
+            "epoch_a": e2.epoch_id,  # diff = bb2 - bb1
+            "epoch_b": e1.epoch_id,
+            "image_format": "png",
+            "subtracted_image_url": diff_url,
+            "detected_anomalies": anomalies,
+        },
         "spectrum_102_bands": spectrum,
         "light_curve": [light_curve_point(e1, spec1, common_channels),
                         light_curve_point(e2, spec2, common_channels)],
     }
 
-    model = SkyPatchResponse.model_validate(payload)
+
+def generate_target(target: Target, uploader: StorageUploader, args) -> Path:
+    t0 = time.monotonic()
+    model = SkyPatchResponse.model_validate(build_payload(target, uploader, args))
     out_path = REPO_ROOT / "app" / "data" / target.data_file
     out_path.write_text(json.dumps(model.model_dump(mode="json"), indent=2) + "\n", "utf-8")
     log.info("Wrote %s in %.0fs", out_path.relative_to(REPO_ROOT), time.monotonic() - t0)
@@ -766,6 +858,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--snr-threshold", type=float, default=5.0, help="anomaly threshold in sigma")
     p.add_argument("--min-anomaly-px", type=int, default=2, help="minimum anomaly area in native px")
     p.add_argument("--max-anomalies", type=int, default=10)
+    p.add_argument("--dedup-radius-px", type=float, default=12.0,
+                   help="merge detections within this distance, in PNG px (default: %(default)s)")
     p.add_argument("--flag-majority", type=float, default=0.5,
                    help="fraction of exposures that must carry a flag at a pixel for it to be reported")
     p.add_argument("--aperture-px", type=float, default=1.5, help="photometry aperture radius (native px)")
@@ -775,12 +869,26 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
+def default_args(**overrides) -> argparse.Namespace:
+    """CLI defaults as a Namespace, for callers that aren't the CLI (live API jobs)."""
+    args = parse_args(["--all"])
+    for key, value in overrides.items():
+        if not hasattr(args, key):
+            raise AttributeError(f"unknown pipeline option: {key}")
+        setattr(args, key, value)
+    return args
+
+
+def quiet_astropy() -> None:
+    astropy_log.setLevel("WARNING")  # silences the per-file SIP/CTYPE notices
+    warnings.filterwarnings("ignore", category=FITSFixedWarning)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)-7s %(message)s", datefmt="%H:%M:%S")
-    astropy_log.setLevel("WARNING")  # silences the per-file SIP/CTYPE notices
-    warnings.filterwarnings("ignore", category=FITSFixedWarning)
+    quiet_astropy()
 
     uploader = make_uploader(args.storage, args.public_base_url)
     keys = list(CATALOG) if args.all else args.target
