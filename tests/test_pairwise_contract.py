@@ -10,7 +10,7 @@ from app.core.config import settings
 from app.core.targets import CATALOG
 from app.main import app
 from app.schemas.sky_patch import SkyPatchResponse
-from tests.conftest import load_raw
+from tests.conftest import live_client, load_raw  # noqa: F401  (fixture)
 
 # The first-vs-last difference images must stay byte-identical when the
 # Golden Path is regenerated (pairwise differences are additive). These are
@@ -84,3 +84,38 @@ def test_pairs_must_name_two_different_timelapse_epochs():
     with pytest.raises(ValueError, match="pairwise epoch_a and epoch_b"):
         SkyPatchResponse.model_validate(to_internal(raw))
 
+
+def test_live_job_result_carries_pairwise_with_absolute_urls(live_client):
+    """POST /jobs (live): the result has the same pairwise block as the Golden Path,
+    with image URLs made absolute like every other image."""
+    res = live_client.post("/api/v1/jobs", json={"ra": "00h40m00s", "dec": "+41d00m00s", "fov": 5})
+    assert res.status_code == 202
+    done = live_client.get(f'/api/v1/jobs/{res.json()["job_id"]}').json()
+    diff = done["result"]["difference_imaging"]
+    assert diff["kind"] == "first_vs_last"
+    assert len(diff["pairwise"]) == len(done["result"]["timelapse_epochs"]) - 1
+    assert all(p["subtracted_image_url"].startswith("http://testserver/static/") for p in diff["pairwise"])
+
+
+def test_difference_stage_is_reported_while_polling(live_client):
+    """The new `difference` stage goes through the existing progress channel."""
+    from tests.conftest import FakeLiveRunner
+
+    original = FakeLiveRunner._patch
+    seen = []
+
+    def with_difference_stage(self, target, fov, job_id, progress):
+        if progress:
+            progress("difference", 0.95, "Calculando restas entre épocas consecutivas...")
+            seen.append(live_client.jobs.get(job_id))
+        return original(self, target, fov, job_id, progress)
+
+    FakeLiveRunner._patch = with_difference_stage
+    try:
+        res = live_client.post("/api/v1/jobs", json={"ra": 12.0, "dec": 40.0})
+        done = live_client.get(f'/api/v1/jobs/{res.json()["job_id"]}').json()
+    finally:
+        FakeLiveRunner._patch = original
+    assert seen[0].stage == "difference" and seen[0].progress == pytest.approx(0.95)
+    assert seen[0].status == "running"
+    assert done["status"] == "completed" and done["stage"] == "done"

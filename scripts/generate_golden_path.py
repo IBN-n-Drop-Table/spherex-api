@@ -1202,7 +1202,8 @@ def build_payload(target: Target, uploader: StorageUploader, args, cached: bool 
     log.info("Spectrum: %d/102 channels (visit %s); %d channels shared by all visits; saturated=%s",
              len(spectrum), epochs[best].epoch_id, len(common_channels), saturated)
 
-    progress("render", 0.99, "Listo.")
+    # Keep the last stage reached, so a polling client never sees it go backwards.
+    progress("difference" if len(epochs) >= 3 else "render", 0.99, "Listo.")
     return {
         "target_info": {
             "name": target.name,

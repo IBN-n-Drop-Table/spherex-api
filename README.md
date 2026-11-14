@@ -85,7 +85,8 @@ curl localhost:8000/api/v1/jobs/<job_id>
 ```
 
 - Cached targets come back **200** with `status: completed` and the `result` at once.
-- Poll every `retry_after_ms` (1500 ms). Stages: `queued` -> `query` -> `download` -> `stack` -> `render` -> `done` (or `failed`).
+- Poll every `retry_after_ms` (1500 ms). Stages: `queued` -> `query` -> `download` -> `stack` -> `render` -> `difference` (only with 3+ visits) -> `done` (or `failed`).
+- A live result has the same `pairwise` differences as the Golden Path, built from the same stacks: no extra downloads.
 - **A cold job takes tens of seconds to a few minutes**: each IRSA cutout takes ~12 s (it always carries a ~4 MB PSF table), and live mode downloads 1 cutout per detector and visit (~18). Measured on 2026-11-14: 40-100 s for Barnard's Star. The messages say so.
 - The same query returns the same job. One job runs at a time; more than 8 queued -> **503** `Retry-After: 30`.
 - Jobs live in memory (1 h after finishing). A restart forgets them, which is why the service runs 1 uvicorn worker.

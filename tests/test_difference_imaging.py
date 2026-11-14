@@ -280,6 +280,8 @@ def test_consecutive_pairs_in_time_order(gp, run_payload, n_visits):
         sorted(f"barnardsstar_diff_epoch{i}_epoch{i + 1}.png" for i in range(1, n_visits))
     assert all(p["subtracted_image_url"].endswith(f"_epoch{i + 1}_epoch{i + 2}.png") for i, p in enumerate(pairs))
     assert "difference" in stages
+    after = stages[stages.index("difference"):]
+    assert set(after) == {"difference"}  # the stage never goes back while polling
     # anomalies are only detected on the first-vs-last difference
     assert all("detected_anomalies" not in p for p in pairs)
 
