@@ -83,8 +83,9 @@ def test_cached_formats_and_epochs(name):
     assert all(e["image_format"] == "png" for e in data["timelapse_epochs"])
     diff = data["difference_imaging"]
     assert diff["image_format"] == "png"
-    # The pipeline computes epoch 2 - epoch 1.
-    assert (diff["epoch_a"], diff["epoch_b"]) == (epoch_ids[1], epoch_ids[0])
+    # Every visit is a timelapse epoch; the difference is last - first (longest baseline).
+    assert len(epoch_ids) >= 2 and len(set(epoch_ids)) == len(epoch_ids)
+    assert (diff["epoch_a"], diff["epoch_b"]) == (epoch_ids[-1], epoch_ids[0])
 
 
 @pytest.mark.parametrize("name", CACHED_FILES)
@@ -97,7 +98,10 @@ def test_cached_anomalies(name):
         # (rounding to a 0.5" PNG pixel allows up to ~0.36").
         ra, dec = png_to_world(patch["wcs"], patch["height_px"], a["pixel_x"], a["pixel_y"])
         assert angular_separation_arcsec(ra, dec, a["ra_deg"], a["dec_deg"]) < 0.5
-        assert a["spectrum_102_bands"], f'{a["anomaly_id"]} has no spectrum'
+        # Saturated anomalies (e.g. Barnard's Star itself) have no valid photometry.
+        saturated = {"BLOOM", "OVERFLOW"} & set(a["contamination_flags"])
+        assert a["spectrum_102_bands"] or saturated, f'{a["anomaly_id"]} has no spectrum'
+        assert a["is_clean_detection"] is not bool(saturated) or not saturated
     # Duplicate contours (<= 12 px apart) were merged. Stored pixels are
     # rounded, so allow 1 px of slack against the float positions used.
     for i, a in enumerate(anomalies):
@@ -142,14 +146,16 @@ def test_uncached_coordinates_return_202_then_poll(live_client):
     body = res.json()
     assert body["status"] == "queued" and body["kind"] == "sky_patch" and body["result"] is None
     assert res.headers["location"].endswith(f'/api/v1/jobs/{body["job_id"]}')
-    assert res.headers["retry-after"] == "5"
+    assert res.headers["retry-after"] == "2"  # retry_after_ms = 1500
+    assert body["retry_after_ms"] == 1500 and body["stage"] == "queued"
 
     job = live_client.get(f'/api/v1/jobs/{body["job_id"]}').json()
     assert job["status"] == "completed" and job["error"] is None
     assert job["result"]["target_info"]["is_cached_golden_path"] is False
-    key, ra, dec, fov, base_url, job_id = live_client.runner.calls[0]
+    assert job["stage"] == "done" and job["progress"] == 1.0 and job["retry_after_ms"] is None
+    assert job["result"]["timelapse_epochs"][0]["image_url"].startswith("http://testserver/static/")
+    key, ra, dec, fov, job_id = live_client.runner.calls[0]
     assert (key, ra, dec, fov, str(job_id)) == ("LIVE", 10.0, 41.0, 8.0, body["job_id"])
-    assert base_url == "http://testserver/"
 
 
 def test_same_query_reuses_job_then_answers_200(live_client):

@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.core.config import settings
-from app.routers import jobs, reports, sky_patch, spectrum
+from app.routers import epochs, jobs, reports, sky_patch, spectrum
 from app.services.golden_path import warm_cache
 from app.services.live import live_processing_available
 from app.services.reports import get_report_service
@@ -48,7 +48,7 @@ app.add_middleware(
     expose_headers=["Location", "Retry-After"],  # 202 -> job polling URL
 )
 
-for module in (sky_patch, spectrum, jobs, reports):
+for module in (sky_patch, spectrum, jobs, epochs, reports):
     app.include_router(module.router, prefix=settings.api_v1_prefix)
 
 # PNGs written by scripts/generate_golden_path.py (--storage local) and live jobs (static/live/<job_id>/)

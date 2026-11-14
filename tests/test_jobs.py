@@ -138,16 +138,43 @@ def test_live_runner_maps_irsa_outage_to_readable_error(monkeypatch, tmp_path):
         pass
 
     class Storage:
-        def __init__(self, base_url, url_path):
+        def __init__(self, url_path):
             self.directory = tmp_path / url_path
             self.directory.mkdir(parents=True)
 
     def build_payload(*a, **k):
         raise DALServiceError("HTTP Code: 502 Proxy Error <html>...</html>")
 
-    fake = SimpleNamespace(default_args=lambda **k: k, LocalStorage=Storage, build_payload=build_payload)
+    fake = SimpleNamespace(default_args=lambda **k: SimpleNamespace(**k), LocalStorage=Storage,
+                           build_payload=build_payload)
     monkeypatch.setattr(live, "_load_pipeline", lambda: fake)
     job_id = uuid4()
     with pytest.raises(live.UpstreamUnavailable, match=r"IRSA is unavailable or busy right now \(HTTP 502\)"):
-        live.PipelineLiveRunner().sky_patch(live.coordinate_target(1, 2), 5.0, "http://x/", job_id)
+        live.PipelineLiveRunner().sky_patch(live.coordinate_target(1, 2), 5.0, job_id)
     assert not (tmp_path / f"live/{job_id}").exists()  # partial outputs removed
+
+
+def test_live_runner_uses_minimal_live_budget(monkeypatch, tmp_path):
+    """Live mode: 1 cutout per detector and visit, capped fov, 5 s SIA budget, no disk cache."""
+    from types import SimpleNamespace
+    from uuid import uuid4
+
+    from app.services import live
+
+    seen = {}
+
+    class Storage:
+        def __init__(self, url_path):
+            self.directory = tmp_path / url_path
+
+    def build_payload(target, uploader, args, cached, progress):
+        seen.update(vars(args), cached=cached)
+        raise RuntimeError("stop here")
+
+    fake = SimpleNamespace(default_args=lambda **k: SimpleNamespace(**k), LocalStorage=Storage,
+                           build_payload=build_payload)
+    monkeypatch.setattr(live, "_load_pipeline", lambda: fake)
+    with pytest.raises(RuntimeError, match="stop here"):
+        live.PipelineLiveRunner().sky_patch(live.coordinate_target(1, 2), 30.0, uuid4())
+    assert seen["max_per_detector"] == 1 and seen["sia_budget_s"] == 5.0
+    assert seen["fov"] == 15.0 and seen["no_cache"] is True and seen["cached"] is False

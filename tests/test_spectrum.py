@@ -14,7 +14,8 @@ def test_target_spectrum(live_client):
     assert body["source"] == "target" and body["is_cached_golden_path"] is True
     assert body["spectrum_102_bands"] == WISE["spectrum_102_bands"]
     assert (body["ra_deg"], body["dec_deg"]) == (WISE["patch"]["wcs"]["crval1"], WISE["patch"]["wcs"]["crval2"])
-    assert body["epoch_id"] == WISE["timelapse_epochs"][0]["epoch_id"]
+    assert body["epoch_id"] == (WISE.get("spectrum_epoch_id") or WISE["timelapse_epochs"][0]["epoch_id"])
+    assert body["saturated"] == WISE.get("saturated")
 
 
 @pytest.mark.parametrize("anomaly", ANOMALIES, ids=lambda a: a["anomaly_id"])

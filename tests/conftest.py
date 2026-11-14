@@ -10,12 +10,21 @@ import json  # noqa: E402
 import pytest  # noqa: E402
 
 from app.core.config import settings  # noqa: E402
+from app.core.urls import to_internal, to_public  # noqa: E402
 from app.schemas.sky_patch import SkyPatchResponse  # noqa: E402
 from app.schemas.spectrum import SpectrumResponse  # noqa: E402
 
+TEST_BASE = "http://testserver"
+
+
+def load_raw(name: str = "wise_0855.json") -> dict:
+    """The file as stored on disk (image paths relative to the API)."""
+    return json.loads((settings.data_dir / name).read_text("utf-8"))
+
 
 def load_patch(name: str = "wise_0855.json") -> dict:
-    return json.loads((settings.data_dir / name).read_text("utf-8"))
+    """What the API serves for a cached file: normalised by the model, absolute URLs."""
+    return to_public(SkyPatchResponse.model_validate(to_internal(load_raw(name))), TEST_BASE)
 
 
 class FakeLiveRunner:
@@ -25,20 +34,29 @@ class FakeLiveRunner:
         self.fail = fail
         self.calls: list[tuple] = []
 
-    def _patch(self, target, fov, base_url, job_id) -> SkyPatchResponse:
-        self.calls.append((target.key, target.ra_deg, target.dec_deg, fov, base_url, job_id))
+    epochs_result: list[dict] | Exception = []
+
+    def _patch(self, target, fov, job_id, progress) -> SkyPatchResponse:
+        self.calls.append((target.key, target.ra_deg, target.dec_deg, fov, job_id))
+        if progress:
+            progress("download", 0.5, "Descargando recortes de IRSA: 1/2")
         if self.fail:
             raise self.fail
-        raw = load_patch()
+        raw = to_internal(load_raw())
         raw["target_info"].update(name=target.name, ra_deg=target.ra_deg, dec_deg=target.dec_deg,
                                   is_cached_golden_path=False)
         return SkyPatchResponse.model_validate(raw)
 
-    def sky_patch(self, target, fov, base_url, job_id):
-        return self._patch(target, fov, base_url, job_id)
+    def sky_patch(self, target, fov, job_id, progress=None):
+        return self._patch(target, fov, job_id, progress)
 
-    def spectrum(self, target, fov, base_url, job_id):
-        patch = self._patch(target, fov, base_url, job_id)
+    def epochs(self, ra, dec):
+        if isinstance(self.epochs_result, Exception):
+            raise self.epochs_result
+        return self.epochs_result
+
+    def spectrum(self, target, fov, job_id, progress=None):
+        patch = self._patch(target, fov, job_id, progress)
         return SpectrumResponse(
             source="target", target_name=target.name, ra_deg=target.ra_deg, dec_deg=target.dec_deg,
             epoch_id=patch.timelapse_epochs[0].epoch_id, is_cached_golden_path=False,

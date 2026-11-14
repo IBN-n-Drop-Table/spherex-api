@@ -12,6 +12,7 @@ from functools import lru_cache
 from app.core.config import settings
 from app.core.patch_geometry import angular_separation_arcsec
 from app.core.targets import CATALOG, Target
+from app.core.urls import to_internal
 from app.schemas.sky_patch import DetectedAnomaly, SkyPatchResponse
 from app.schemas.spectrum import SpectrumResponse
 
@@ -32,7 +33,8 @@ def _load(key: str) -> SkyPatchResponse:
     target = CATALOG[key]
     path = settings.data_dir / target.data_file
     try:
-        return SkyPatchResponse.model_validate(json.loads(path.read_text("utf-8")))
+        # Files store image paths relative to the API; see app/core/urls.py.
+        return SkyPatchResponse.model_validate(to_internal(json.loads(path.read_text("utf-8"))))
     except ValueError as exc:  # pydantic.ValidationError is a ValueError
         raise RuntimeError(
             f"{path.name} does not match the current SkyPatchResponse contract. Regenerate it: "
@@ -65,6 +67,15 @@ def find_sky_patch(
     return None
 
 
+def cached_patches() -> list[SkyPatchResponse]:
+    """Every cached Golden Path patch, in catalogue order."""
+    return [_load(t.key) for t in _available()]
+
+
+def cached_target(target: Target) -> SkyPatchResponse | None:
+    return _load(target.key) if (settings.data_dir / target.data_file).is_file() else None
+
+
 def catalog_target(name: str) -> Target | None:
     """Catalogue entry for a name, cached or not."""
     return CATALOG.get(normalize_target(name))
@@ -74,15 +85,19 @@ class AnomalyNotFound(LookupError):
     pass
 
 
-def _target_spectrum(patch: SkyPatchResponse) -> SpectrumResponse:
+def target_spectrum(patch: SkyPatchResponse, cached: bool = True) -> SpectrumResponse:
     return SpectrumResponse(
         source="target",
         target_name=patch.target_info.name,
         ra_deg=patch.patch.wcs.crval1,  # photometry follows the star, centred here at epoch 1
         dec_deg=patch.patch.wcs.crval2,
-        epoch_id=patch.timelapse_epochs[0].epoch_id,
-        is_cached_golden_path=True,
+        epoch_id=patch.spectrum_epoch_id or patch.timelapse_epochs[0].epoch_id,
+        is_cached_golden_path=cached,
         spectrum_102_bands=patch.spectrum_102_bands,
+        saturated=patch.saturated,
+        spectrum_message=patch.spectrum_message,
+        fallback=patch.fallback,
+        fallback_message=patch.fallback_message,
     )
 
 
@@ -120,7 +135,7 @@ def find_cached_spectrum(
             if entry.key != wanted:
                 continue
             if anomaly_id is None:
-                return _target_spectrum(patch)
+                return target_spectrum(patch)
             for anomaly in patch.difference_imaging.detected_anomalies:
                 if anomaly.anomaly_id == anomaly_id:
                     return _anomaly_spectrum(patch, anomaly)
@@ -136,6 +151,6 @@ def find_cached_spectrum(
                     for a in patch.difference_imaging.detected_anomalies]
         for distance, p, anomaly in options:
             if distance <= radius_arcsec and (best is None or distance < best[0]):
-                spectrum = _anomaly_spectrum(p, anomaly) if anomaly else _target_spectrum(p)
+                spectrum = _anomaly_spectrum(p, anomaly) if anomaly else target_spectrum(p)
                 best = (distance, spectrum)
     return best[1] if best else None
