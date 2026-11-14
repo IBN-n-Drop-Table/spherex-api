@@ -19,7 +19,14 @@ from app.services.live import LiveProcessingUnavailable, UpstreamUnavailable
 
 logger = logging.getLogger(__name__)
 
+# One message per fallback_reason. Only an IRSA problem is "alta latencia".
 FALLBACK_MESSAGE = "Mostrando datos en caché debido a alta latencia en servidores de origen"
+LIVE_UNAVAILABLE_MESSAGE = (
+    "Estas coordenadas no están precalculadas y el análisis en vivo no está disponible ahora en este "
+    "servidor. Elige uno de los 5 objetos del reto o vuelve a lanzar un análisis en vivo "
+    "(POST /api/v1/jobs) más tarde"
+)
+UNKNOWN_FALLBACK_MESSAGE = "Mostrando datos en caché: el análisis en vivo no pudo completarse"
 
 
 class NoCachedData(RuntimeError):
@@ -48,8 +55,15 @@ def reason_code(reason: BaseException | str | None) -> FallbackReason:
     return "unknown"
 
 
-def message_for(patch: SkyPatchResponse, distance_deg: float | None, reason: str | None = None) -> str:
-    msg = FALLBACK_MESSAGE
+def message_for(patch: SkyPatchResponse, distance_deg: float | None,
+                reason: BaseException | str | None = None) -> str:
+    """Spanish `fallback_message`, worded for its `fallback_reason`."""
+    code = reason_code(reason)
+    if code == "live_processing_unavailable":
+        where = f", a {distance_deg:.1f}°" if distance_deg is not None else ""
+        # The technical detail (no science stack) is for logs, not for users.
+        return f"{LIVE_UNAVAILABLE_MESSAGE}. Se muestra el objeto precalculado más cercano ({patch.target_info.name}{where})"
+    msg = FALLBACK_MESSAGE if code == "irsa_unavailable" else UNKNOWN_FALLBACK_MESSAGE
     if distance_deg is not None and distance_deg > 0.25:
         msg += (f". No hay datos en caché para estas coordenadas: se muestra el objeto en caché más "
                 f"cercano ({patch.target_info.name}, a {distance_deg:.1f}°)")
@@ -62,9 +76,8 @@ def sky_patch_fallback(ra_deg: float | None, dec_deg: float | None,
                        reason: BaseException | str | None = None) -> SkyPatchResponse:
     """`reason`: the exception that triggered the fallback (or its text)."""
     patch, distance = nearest_cached_patch(ra_deg, dec_deg)
-    detail = str(reason) if reason is not None else None
-    logger.warning("Serving fallback %s (%s)", patch.target_info.name, detail)
-    return patch.model_copy(update={"fallback": True, "fallback_message": message_for(patch, distance, detail),
+    logger.warning("Serving fallback %s (%s)", patch.target_info.name, reason)
+    return patch.model_copy(update={"fallback": True, "fallback_message": message_for(patch, distance, reason),
                                     "fallback_reason": reason_code(reason)})
 
 

@@ -14,6 +14,7 @@ from app.core.coords import CoordinateError, parse_dec, parse_ra
 from app.core.urls import to_public
 from app.schemas.jobs import JobKind, JobResponse, JobStatus
 from app.schemas.sky_patch import ChemicalBand, ErrorResponse, SkyPatchResponse
+from app.services.annotations import annotate
 from app.services.fallback import NoCachedData
 from app.services.jobs import JobService, TooManyJobs, get_job_service
 from app.services.live import LiveProcessingUnavailable, LiveRunner, UpstreamUnavailable, get_live_runner
@@ -76,12 +77,15 @@ def public_base(request: Request) -> str:
 
 def render(model: BaseModel, request: Request, band: str | None = None) -> dict[str, Any]:
     """Model -> JSON dict with absolute image URLs (and `band` echoed on sky patches)."""
+    model = annotate(model)  # serve-time science caveats (app/core/science_notes.py)
     if band is not None and isinstance(model, SkyPatchResponse):
         model = model.model_copy(update={"band": band})
     return to_public(model, public_base(request))
 
 
 def render_job(job: JobResponse, request: Request, band: str | None = None) -> dict[str, Any]:
+    if job.result is not None:
+        job = job.model_copy(update={"result": annotate(job.result)})
     if band is not None and isinstance(job.result, SkyPatchResponse):
         job = job.model_copy(update={"result": job.result.model_copy(update={"band": band})})
     return to_public(job, public_base(request))

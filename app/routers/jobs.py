@@ -2,6 +2,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response, status
 
+from app.core.errors import ApiError
 from app.routers.common import (
     POLL_AFTER_S,
     JobsDep,
@@ -20,7 +21,10 @@ from app.services.live import coordinate_target
 
 router = APIRouter(tags=["jobs"])
 
-JOB_NOT_FOUND = "Job not found (unknown id, or expired)."
+# Jobs live in memory: a restart (e.g. Render spinning the free instance down) or the
+# 1 h TTL after finishing forgets them. The frontend should start the job again.
+JOB_NOT_FOUND = "El análisis se perdió por un reinicio del servidor; vuelve a lanzarlo."
+JOB_NOT_FOUND_CODE = "job_not_found"
 CACHED_MESSAGE = "Datos precalculados (Golden Path): respuesta instantánea."
 
 
@@ -79,12 +83,16 @@ def create_job(body: JobCreate, request: Request, background_tasks: BackgroundTa
     name="get_job",
     response_model=JobResponse,
     summary="Poll a job: status, stage, progress, message, result",
-    responses={status.HTTP_404_NOT_FOUND: {"model": ErrorResponse}},
+    responses={status.HTTP_404_NOT_FOUND: {
+        "model": ErrorResponse,
+        "description": "`code: \"job_not_found\"`: the job is gone (server restart, or expired 1 h "
+        "after finishing). Start it again with POST /api/v1/jobs.",
+    }},
 )
 def get_job(job_id: UUID, jobs: JobsDep, request: Request, response: Response):
     job = jobs.get(job_id)
     if job is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=JOB_NOT_FOUND)
+        raise ApiError(status.HTTP_404_NOT_FOUND, JOB_NOT_FOUND, JOB_NOT_FOUND_CODE)
     if job.status in (JobStatus.QUEUED, JobStatus.RUNNING):
         response.headers["Retry-After"] = str(POLL_AFTER_S)
     return render_job(job, request)

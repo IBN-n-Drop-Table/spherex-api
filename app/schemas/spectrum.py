@@ -4,7 +4,17 @@ from typing import Literal
 
 from pydantic import Field
 
-from app.schemas.sky_patch import FALLBACK_REASON_DOC, FallbackReason, Spectrum, _Strict
+from app.schemas.sky_patch import (
+    DATA_CREDITS_DOC,
+    FALLBACK_REASON_DOC,
+    QUALITY_DOC,
+    SCIENCE_NOTE_DOC,
+    FallbackReason,
+    DataCredit,
+    ResponseQuality,
+    Spectrum,
+    _Strict,
+)
 
 
 class SpectrumResponse(_Strict):
@@ -26,3 +36,6 @@ class SpectrumResponse(_Strict):
     fallback: bool = False
     fallback_message: str | None = None
     fallback_reason: FallbackReason | None = Field(default=None, description=FALLBACK_REASON_DOC)
+    science_note: str | None = Field(default=None, description=SCIENCE_NOTE_DOC)
+    quality: ResponseQuality | None = Field(default=None, description=QUALITY_DOC)
+    data_credits: list[DataCredit] | None = Field(default=None, description=DATA_CREDITS_DOC)

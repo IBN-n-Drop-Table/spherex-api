@@ -26,8 +26,11 @@ def load_raw(name: str = "wise_0855.json") -> dict:
 
 
 def load_patch(name: str = "wise_0855.json") -> dict:
-    """What the API serves for a cached file: normalised by the model, absolute URLs."""
-    return to_public(SkyPatchResponse.model_validate(to_internal(load_raw(name))), TEST_BASE)
+    """What the API serves for a cached file: normalised by the model, with the
+    serve-time annotations (app/services/annotations.py), absolute URLs."""
+    from app.services.annotations import annotate
+
+    return to_public(annotate(SkyPatchResponse.model_validate(to_internal(load_raw(name)))), TEST_BASE)
 
 
 class FakeLiveRunner:

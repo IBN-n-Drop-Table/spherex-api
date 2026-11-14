@@ -178,3 +178,35 @@ def test_live_runner_uses_minimal_live_budget(monkeypatch, tmp_path):
         live.PipelineLiveRunner().sky_patch(live.coordinate_target(1, 2), 30.0, uuid4())
     assert seen["max_per_detector"] == 1 and seen["sia_budget_s"] == 5.0
     assert seen["fov"] == 15.0 and seen["no_cache"] is True and seen["cached"] is False
+
+
+def test_polling_a_lost_job_says_so_in_the_unified_format():
+    """After a restart (in-memory jobs are gone) polling answers 404 job_not_found."""
+    from uuid import uuid4
+
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+    from app.services.jobs import JobService, get_job_service
+
+    app.dependency_overrides[get_job_service] = lambda: JobService(ttl_s=3600, max_running=1, max_active=8)
+    try:
+        with TestClient(app) as client:  # a fresh, empty store = the process after a restart
+            res = client.get(f"/api/v1/jobs/{uuid4()}")
+    finally:
+        app.dependency_overrides.clear()
+    assert res.status_code == 404
+    assert res.json() == {
+        "detail": "El análisis se perdió por un reinicio del servidor; vuelve a lanzarlo.",
+        "code": "job_not_found",
+        "errors": None,
+    }
+
+
+def test_other_404s_keep_the_generic_code():
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    with TestClient(app) as client:
+        assert client.get("/api/v1/sky-patch", params={"target": "M31"}).json()["code"] == "not_found"

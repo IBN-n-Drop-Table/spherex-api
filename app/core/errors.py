@@ -4,7 +4,8 @@
 
 * `detail` is always a string (FastAPI's own 422s used to put a list there).
 * `code` is stable, for the frontend to branch on: not_found, validation_error,
-  service_unavailable, internal_error, or http_<status> for anything else.
+  service_unavailable, internal_error, or http_<status> for anything else. An
+  endpoint can be more specific by raising ApiError (e.g. job_not_found).
 * `errors` lists the field problems of a 422 validation error (loc, msg, type);
   null otherwise.
 """
@@ -32,8 +33,17 @@ CODES = {
 }
 
 
-def error_body(status_code: int, detail: str, errors: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-    return {"detail": detail, "code": CODES.get(status_code, f"http_{status_code}"), "errors": errors}
+class ApiError(StarletteHTTPException):
+    """An HTTP error with a specific `code` (instead of the one derived from the status)."""
+
+    def __init__(self, status_code: int, detail: str, code: str, headers: dict[str, str] | None = None):
+        super().__init__(status_code=status_code, detail=detail, headers=headers)
+        self.code = code
+
+
+def error_body(status_code: int, detail: str, errors: list[dict[str, Any]] | None = None,
+               code: str | None = None) -> dict[str, Any]:
+    return {"detail": detail, "code": code or CODES.get(status_code, f"http_{status_code}"), "errors": errors}
 
 
 def _field(loc: tuple | list) -> str:
@@ -43,7 +53,8 @@ def _field(loc: tuple | list) -> str:
 
 async def http_error(_: Request, exc: StarletteHTTPException) -> JSONResponse:
     detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
-    return JSONResponse(error_body(exc.status_code, detail), status_code=exc.status_code,
+    return JSONResponse(error_body(exc.status_code, detail, code=getattr(exc, "code", None)),
+                        status_code=exc.status_code,
                         headers=getattr(exc, "headers", None))
 
 

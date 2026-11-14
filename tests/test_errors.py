@@ -25,7 +25,7 @@ def _assert_shape(body: dict) -> None:
     ("/api/v1/sky-patch", {"target": "WISE_0855", "band": "XYZ"}, 422, "validation_error"),
     ("/api/v1/spectrum", {}, 422, "validation_error"),
     ("/api/v1/jobs/not-a-uuid", {}, 422, "validation_error"),
-    ("/api/v1/jobs/00000000-0000-0000-0000-000000000000", {}, 404, "not_found"),
+    ("/api/v1/jobs/00000000-0000-0000-0000-000000000000", {}, 404, "job_not_found"),
     ("/api/v1/epochs", {"ra": 1, "dec": 999}, 422, "validation_error"),
     ("/api/v1/no-such-route", {}, 404, "not_found"),
 ])

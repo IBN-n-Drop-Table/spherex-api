@@ -21,6 +21,7 @@ Backend for the **SPHEREx** citizen-science app (NASA Space Apps 2026). It serve
 - [Golden Path pipeline](#golden-path-pipeline-offline)
 - [Notes for frontend developers](#notes-for-frontend-developers)
 - [Adding a target](#adding-a-target)
+- [What the data supports](#what-the-data-supports-object-by-object)
 - [Data used](#data-used)
 - [License](#license)
 
@@ -74,6 +75,7 @@ Full, always up-to-date schema: **`/docs`**. A real response is in [`docs/contra
 | `GET` | `/api/v1/spectrum` | 102-band spectrum of a target, an anomaly or a position |
 | `GET`/`POST` | `/api/v1/reports` | Community feed |
 | `POST` | `/api/v1/reports/{id}/verify` | Peer confirmation |
+| `GET` | `/credits` (also `/api/v1/credits`) | Data used: SPHEREx DR1/QR3 (DOIs), Gaia DR3, WISE citations and the SPHEREx acknowledgement |
 | `GET` | `/health` | Service status |
 
 ### Errors
@@ -86,7 +88,7 @@ Every error, from every endpoint, has one shape:
 ```
 
 - `detail` is always a readable string. (Before 2026-11-14, FastAPI's own 422s put a list there.)
-- `code` is stable: `not_found` (404), `validation_error` (422), `service_unavailable` (503, with `Retry-After`), `method_not_allowed` (405), `internal_error` (500), or `http_<status>`.
+- `code` is stable: `not_found` (404), `job_not_found` (404, a job lost to a restart or expired; see [Jobs](#jobs-with-progress-when-coordinates-are-not-in-the-cache)), `validation_error` (422), `service_unavailable` (503, with `Retry-After`), `method_not_allowed` (405), `internal_error` (500), or `http_<status>`.
 - `errors` lists the field problems of a 422 validation error, and is `null` otherwise.
 
 ### Coordinates, field of view, band
@@ -121,7 +123,8 @@ What the frontend gets as a response from this endpoint (all image URLs absolute
 - `difference_imaging`: `epoch_a` (last visit) minus `epoch_b` (first visit): the longest baseline, so the most motion (`kind: "first_vs_last"`). `detected_anomalies[]` come with `kind` (`appeared`/`disappeared`), `contamination_flags`, `is_clean_detection`, and the labels `detection_label` ("Detección Asistida por Software (BETA)") and `detection_notice` ("requiere verificación humana").
 - `difference_imaging.pairwise[]`: one difference per pair of **consecutive** visits, for the blink comparator. See [Epoch differences](#epoch-differences-first-vs-last-and-consecutive).
 - `spectrum_102_bands` (from `spectrum_epoch_id`) and `light_curve` (one point per visit). Where there is no valid photometry, `flux_mjy_sr` is `null` with a `note`, never 0.
-- `saturated` / `spectrum_message`: bright stars (Barnard's Star, R Draconis) saturate SPHEREx. Their cores are **shown** in the PNGs but **excluded** from the spectrum and light curve.
+- `saturated` / `spectrum_message`: bright stars (Barnard's Star, RW Aurigae, R Draconis) saturate SPHEREx. Their cores are **shown** in the PNGs but **excluded** from the spectrum and light curve. Such responses also get `quality: "low"`, `quality: "low"` on every spectral band, and a lower-limit `note` on light-curve points (see [What the data supports](#what-the-data-supports-object-by-object)).
+- `science_note` / `quality`: what can and cannot be claimed from this object, added when served.
 - `fallback` / `fallback_message`: see [Offline-first fallback](#offline-first-fallback).
 
 ### Jobs with progress (when coordinates are not in the cache)
@@ -141,21 +144,10 @@ curl localhost:8000/api/v1/jobs/<job_id>
 - **A cold job takes tens of seconds to a few minutes**: each IRSA cutout takes ~12 s (it always carries a ~4 MB PSF table), and live mode downloads 1 cutout per detector and visit (~18). Measured on 2026-11-14: 40-100 s for Barnard's Star. The messages say so.
 - The same query returns the same job. One job runs at a time; more than 8 queued -> **503** `Retry-After: 30`.
 - Jobs live in memory (1 h after finishing). A restart forgets them, which is why the service runs 1 uvicorn worker.
+- Polling a job that no longer exists (a restart, e.g. Render spinning the free instance down, or 1 h after it finished) answers **404** with `code: "job_not_found"` and `detail: "El análisis se perdió por un reinicio del servidor; vuelve a lanzarlo."`. Show the message and offer to POST the same query again.
 - The legacy `GET /sky-patch` / `GET /spectrum` 202 + `Location` flow still works.
 
-### Offline-first fallback
-
-IRSA gets **5 s** (`SIA_BUDGET_S`, retries included) to answer. On a timeout, 429 or 5xx, or when the server has no science stack, the job still **completes**: its result is the cached patch nearest to the requested position, with
-
-```json
-"fallback": true,
-"fallback_message": "Mostrando datos en caché debido a alta latencia en servidores de origen. ...",
-"fallback_reason": "irsa_unavailable"
-```
-
-`fallback_reason` is the machine-readable cause, on sky patches, spectra and `/epochs`: `irsa_unavailable` (IRSA timed out, throttled or answered 5xx), `live_processing_unavailable` (this server has no science stack), or `unknown`. It is `null` when `fallback` is false. Branch on it, show `fallback_message`.
-
-`target_info.name` says which cached object is shown. A failure caused by IRSA never produces a 500. A position IRSA answers for but SPHEREx hasn't covered twice yet ends as `status: failed` with a readable `error`.
+See [Offline-first fallback](#offline-first-fallback) for what a job returns when IRSA fails.
 
 ### `GET /api/v1/epochs?ra=..&dec=..`
 
@@ -179,8 +171,17 @@ IRSA gets **5 s** (`SIA_BUDGET_S`, retries included) to answer. On a timeout, a 
 
 ```json
 "fallback": true,
-"fallback_message": "Mostrando datos en caché debido a alta latencia en servidores de origen. ..."
+"fallback_message": "Mostrando datos en caché debido a alta latencia en servidores de origen. ...",
+"fallback_reason": "irsa_unavailable"
 ```
+
+`fallback_reason` is the machine-readable cause, on sky patches, spectra and `/epochs`; it is `null` when `fallback` is false. Branch on it, show `fallback_message` (Spanish), which is worded for that cause:
+
+| `fallback_reason` | When | `fallback_message` starts with |
+|---|---|---|
+| `irsa_unavailable` | IRSA timed out, throttled (429) or answered 5xx | "Mostrando datos en caché debido a alta latencia en servidores de origen" (+ the nearest object if it is far, + the technical detail) |
+| `live_processing_unavailable` | The position is not pre-computed and this server has no live processing (no science stack) | "Estas coordenadas no están precalculadas y el análisis en vivo no está disponible ahora en este servidor. Elige uno de los 5 objetos del reto o vuelve a lanzar un análisis en vivo (POST /api/v1/jobs) más tarde" + which object is shown instead |
+| `unknown` | Anything else that still fell back | "Mostrando datos en caché: el análisis en vivo no pudo completarse" |
 
 `target_info.name` says which cached object is shown. A failure caused by IRSA never produces a 500. A position IRSA answers for but SPHEREx hasn't covered twice yet ends as `status: failed` with a readable `error`.
 
@@ -206,8 +207,6 @@ curl -X POST localhost:8000/api/v1/reports/<id>/verify
 `classification` is one of `asteroid`, `brown_dwarf`, `high_proper_motion_star`, `variable_star`, `transient_anomaly`, `other`. `pixel_x` / `pixel_y` must be sent together. Catalogue target names are stored in a single spelling (`wise_0855` becomes `WISE 0855`), so the feed filter accepts the same spellings as `/sky-patch`.
 
 ### Storage: Supabase or in-memory fallback
-
-`GET /health` shows the store in use (`"reports_backend": "supabase"` or `"memory"`). If the variables are unset, the table is missing or Supabase can't be reached, the API logs a warning and uses an in-memory store that starts with 2 sample discoveries (WISE 0855 and Barnard's Star). If Supabase fails during a demo, the API switches to memory and stays there until restart, so the feed doesn't jump between two stores. Reports kept in memory are lost on restart.
 
 `GET /health` shows the store in use (`"reports_backend": "supabase"` or `"memory"`).
 If the variables are unset, the table is missing or Supabase can't be reached, the API logs a warning and uses an in-memory store. That store starts **empty**. With `REPORTS_DEMO_SEED=1` it starts with 2 demo examples (WISE 0855 and Barnard's Star) by `ejemplo_demo`, flagged `is_example: true` and prefixed `[EJEMPLO]`: label them in the UI, they are not real citizen reports. Supabase rows always have `is_example: false`.
@@ -238,6 +237,7 @@ Copy `.env.example` to `.env`. Every option can be overridden with an environmen
 | `JOB_RETRY_AFTER_MS` | 1500 | Suggested polling interval |
 | `CUTOUT_SECONDS_ESTIMATE` | 12.0 | Seconds per cutout, used only for the displayed ETA |
 | `LIVE_WARMUP` | 1 | `0` disables pre-loading the science stack at startup (saves ~100 MB of RAM) |
+| `REPORTS_DEMO_SEED` | - | `1`: the in-memory feed starts with 2 demo examples flagged `is_example: true` |
 
 To run the API reading the `.env`:
 
@@ -246,6 +246,15 @@ uvicorn app.main:app --reload --port 8000 --env-file .env
 ```
 
 The repo ships a `Dockerfile`, `.dockerignore` and `render.yaml` for deployment (e.g. on Render). Set `PUBLIC_BASE` to the server's public URL.
+
+After deploying, run the smoke test against the public URL (standard library only, nothing to install):
+
+```bash
+python scripts/smoke_test.py https://<your-service>.onrender.com
+python scripts/smoke_test.py https://<your-service>.onrender.com --skip-live   # without the ~1 min live job
+```
+
+It checks `/health`, `/sky-patch` and `/spectrum` for the 5 objects (with `data_credits`), `/credits`, that every image URL and the job `Location` use the scheme and host of the URL you gave (https on a public deploy), CORS on a PNG and on a preflight, the error format, `job_not_found`, and a live `POST /jobs` (fov 2′) polled until it completes. It prints `OK`/`FALLO` per check and exits 1 if anything failed. The first request waits up to 2 min for a sleeping free instance to wake up.
 
 ---
 
@@ -301,6 +310,7 @@ scripts/
   generate_golden_path.py     # offline IRSA -> JSON/PNG pipeline
   setup_supabase.py           # migration + bucket + optional PNG mirror
   export_contract_example.py  # writes docs/contract-example.json
+  smoke_test.py               # checks a deployed API (OK/FALLO per check)
 supabase/migrations/      # SQL for citizen_reports (table, indexes, RLS, verify RPC)
 docs/                     # contract-example.json
 notebooks/
@@ -440,7 +450,33 @@ Current targets: `WISE_0855`, `BARNARDS_STAR`, `EPSILON_INDI_B`, `RW_AURIGAE`, `
 
 ---
 
+## What the data supports, object by object
+
+Some caveats are added to responses **when they are served**, from a static table (`app/core/science_notes.py`); the pre-processed files are never edited. Fields: `science_note` (Spanish, for the UI), `quality` (`unvalidated` or `low`) on `/sky-patch` and on target spectra from `/spectrum`, and a `note` on light-curve points.
+
+**WISE 0855** (`quality: "unvalidated"`). Measured on 2026-11-14 (60 exposures per visit):
+
+| You can say | You cannot say |
+|---|---|
+| The patch follows its proper motion: it is centred on its position at the first visit, ~2′ west of the 2010 catalogue position. | That the broadband spectrum or light curve is WISE 0855's: both are blended with a fixed field star ~11″ away, which dominates at 1 µm. |
+| In detector 6 (4.4–5 µm) its centroid moves 7.9″ west between the first and last visit, against 8.05″ expected. | That the software detects it: none of the anomalies falls on it, and the broadband difference image does not show its dipole. |
+| | That this is the spectrum of a Y dwarf. |
+
+**Saturated objects** (`saturated: true`: Barnard's Star, RW Aurigae, R Draconis, and any live position that saturates). The rule is applied to every such response: `quality: "low"` on the response and on each spectral band, and every light-curve point that has a flux gets the note *"Límite inferior sesgado ... No sirve para afirmar variabilidad"*: the photometry used only the unsaturated pixels of the aperture.
+
+| Object | You can say | You cannot say |
+|---|---|---|
+| Barnard's Star | Its proper motion shows in the difference image: 10.3″ north between the first and last visit, against 10.2″ expected. | Anything from its spectrum or light curve: there are none (empty, `null` + `note`). |
+| RW Aurigae | That the core saturates. | That it varies: its spectrum (58 bands) and light curve are biased lower limits. |
+| R Draconis | Its halo dims between the first and last visit (flux ratio ~0.56), consistent with a Mira at another phase. | Anything about the core: there is no valid spectrum or light curve. |
+
+**Epsilon Indi B** is not saturated and gets no note: its spectrum (methane dip near 3.3 µm, peak at ~4 µm) and its proper-motion dipole (6.2″ measured against 6.6″ expected) are consistent with a T dwarf.
+
+---
+
 ## Data used
+
+The same citations are served by `GET /credits` and in the `data_credits` field of every `/sky-patch` and `/spectrum` response (one source: `app/core/credits.py`; a test checks it matches this section word for word).
 
 Everything the API serves comes from public archives. Nothing is simulated: where a measurement is impossible (e.g. saturated stars), the response says so (`null` + `note`, `saturated`, `spectrum_message`).
 
