@@ -3,6 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, status
 
 from app.core.coords import CoordinateError, parse_dec, parse_ra
+from app.core.target_stories import story_fields
 from app.core.targets import CATALOG
 from app.routers.common import RunnerDep
 from app.schemas.epochs import EpochsResponse, EpochSummary, TargetSummary
@@ -73,5 +74,6 @@ def get_targets() -> list[TargetSummary]:
             is_cached_golden_path=patch is not None,
             n_epochs=len(patch.timelapse_epochs) if patch else None,
             sky_patch_query=f"/api/v1/sky-patch?target={t.key}",
+            **story_fields(t.key),
         ))
     return out

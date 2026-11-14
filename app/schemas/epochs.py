@@ -36,3 +36,13 @@ class TargetSummary(_Strict):
     is_cached_golden_path: bool
     n_epochs: int | None = None
     sky_patch_query: str = Field(examples=["/api/v1/sky-patch?target=WISE_0855"])
+    # Added fields (optional): distance and plain-language texts, see app/core/target_stories.py.
+    distance_ly: float | None = Field(default=None, description="Distance in light years, from the parallax")
+    distance_source: str | None = Field(default=None, description="Citation of the parallax used")
+    light_left_years_ago: int | None = Field(
+        default=None, description="Light-travel time in years, rounded (2 significant figures if uncertain)")
+    distance_uncertain: bool | None = Field(
+        default=None, description="True when the parallax is less reliable: say 'aproximadamente'")
+    description_es: str | None = Field(default=None, description="1-2 plain-language sentences (Spanish)")
+    story_es: str | None = Field(
+        default=None, examples=["La luz que ves salió de esta estrella hace unos 6 años."])
