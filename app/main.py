@@ -2,15 +2,35 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.core.config import settings
-from app.routers import sky_patch
+from app.routers import epochs, jobs, reports, sky_patch, spectrum
 from app.services.golden_path import warm_cache
+from app.services.live import live_processing_available, warm_up_in_background
+from app.services.reports import get_report_service
+
+
+class PublicStaticFiles(StaticFiles):
+    """Static science images readable cross-origin, even without an Origin header.
+
+    Aladin Lite reads pixels through WebGL, which needs CORS. Sending the
+    header on every response also keeps a browser-cached copy that was fetched
+    without CORS from breaking a later CORS fetch of the same URL.
+    """
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Cross-Origin-Resource-Policy"] = "cross-origin"
+        return response
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     warm_cache()  # fail fast if a cached JSON breaks the contract
+    get_report_service()  # pick Supabase or the in-memory fallback, log which
+    warm_up_in_background()
     yield
 
 
@@ -26,11 +46,21 @@ app.add_middleware(
     allow_credentials=False,  # must stay False while origins is "*"
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Location", "Retry-After"],  # 202 -> job polling URL
 )
 
-app.include_router(sky_patch.router, prefix=settings.api_v1_prefix)
+for module in (sky_patch, spectrum, jobs, epochs, reports):
+    app.include_router(module.router, prefix=settings.api_v1_prefix)
+
+# PNGs written by scripts/generate_golden_path.py (--storage local) and live jobs (static/live/<job_id>/)
+settings.static_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/static", PublicStaticFiles(directory=settings.static_dir), name="static")
 
 
 @app.get("/health", tags=["meta"])
 def health() -> dict[str, str]:
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "reports_backend": get_report_service().backend,
+        "live_processing": "available" if live_processing_available() else "unavailable",
+    }

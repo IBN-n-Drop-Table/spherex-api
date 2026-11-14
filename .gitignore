@@ -218,3 +218,15 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Live (out-of-cache) API job outputs
+app/static/live/
+
+# SPHEREx downloads and temporary outputs (never committed; the Golden Path
+# is committed as PNG + JSON under app/static/golden_path/ and app/data/)
+cache/
+*.part
+*.fits
+*.fits.gz
+.claude/
+CLAUDE.md

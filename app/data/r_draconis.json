@@ -1,0 +1,102 @@
+{
+  "target_info": {
+    "name": "R Draconis",
+    "ra_deg": 248.165,
+    "dec_deg": 66.755,
+    "fov_arcmin": 5.0,
+    "is_cached_golden_path": true
+  },
+  "patch": {
+    "width_px": 600,
+    "height_px": 600,
+    "wcs": {
+      "ctype1": "RA---TAN",
+      "ctype2": "DEC--TAN",
+      "crval1": 248.16463027994118,
+      "crval2": 66.75504346417756,
+      "crpix1": 300.5,
+      "crpix2": 300.5,
+      "cd1_1": -0.0001388888888888889,
+      "cd1_2": 0.0,
+      "cd2_1": 0.0,
+      "cd2_2": 0.0001388888888888889
+    }
+  },
+  "timelapse_epochs": [
+    {
+      "epoch_id": "2025_M0",
+      "date": "2025-06-12T20:44:49Z",
+      "image_format": "png",
+      "image_url": "/static/golden_path/rdraconis_epoch1_rgb.png",
+      "chemical_filters": {
+        "H2O": "/static/golden_path/rdraconis_epoch1_h2o.png",
+        "CO2": "/static/golden_path/rdraconis_epoch1_co2.png",
+        "CO": "/static/golden_path/rdraconis_epoch1_co.png"
+      },
+      "n_exposures": 153
+    },
+    {
+      "epoch_id": "2025_M6",
+      "date": "2025-11-30T11:38:00Z",
+      "image_format": "png",
+      "image_url": "/static/golden_path/rdraconis_epoch2_rgb.png",
+      "chemical_filters": {
+        "H2O": "/static/golden_path/rdraconis_epoch2_h2o.png",
+        "CO2": "/static/golden_path/rdraconis_epoch2_co2.png",
+        "CO": "/static/golden_path/rdraconis_epoch2_co.png"
+      },
+      "n_exposures": 211
+    },
+    {
+      "epoch_id": "2025_M12",
+      "date": "2026-06-12T20:38:37Z",
+      "image_format": "png",
+      "image_url": "/static/golden_path/rdraconis_epoch3_rgb.png",
+      "chemical_filters": {
+        "H2O": "/static/golden_path/rdraconis_epoch3_h2o.png",
+        "CO2": "/static/golden_path/rdraconis_epoch3_co2.png",
+        "CO": "/static/golden_path/rdraconis_epoch3_co.png"
+      },
+      "n_exposures": 174
+    }
+  ],
+  "difference_imaging": {
+    "epoch_a": "2025_M12",
+    "epoch_b": "2025_M0",
+    "image_format": "png",
+    "subtracted_image_url": "/static/golden_path/rdraconis_diff.png",
+    "detected_anomalies": [],
+    "detection_label": "Detección Asistida por Software (BETA)",
+    "detection_notice": "Anomalía detectada por software: requiere verificación humana"
+  },
+  "spectrum_102_bands": [],
+  "light_curve": [
+    {
+      "epoch_id": "2025_M0",
+      "date": "2025-06-12",
+      "flux_mjy_sr": null,
+      "variance": null,
+      "note": "Sin fotometría válida: el núcleo satura SPHEREx (OVERFLOW/BLOOM)"
+    },
+    {
+      "epoch_id": "2025_M6",
+      "date": "2025-11-30",
+      "flux_mjy_sr": null,
+      "variance": null,
+      "note": "Sin fotometría válida: el núcleo satura SPHEREx (OVERFLOW/BLOOM)"
+    },
+    {
+      "epoch_id": "2025_M12",
+      "date": "2026-06-12",
+      "flux_mjy_sr": null,
+      "variance": null,
+      "note": "Sin fotometría válida: el núcleo satura SPHEREx (OVERFLOW/BLOOM)"
+    }
+  ],
+  "spectrum_epoch_id": "2025_M0",
+  "saturated": true,
+  "spectrum_message": "El núcleo de la fuente satura SPHEREx (flags OVERFLOW/BLOOM): esos píxeles se muestran en las imágenes pero se excluyen del espectro y de la curva de luz.",
+  "band": null,
+  "fallback": false,
+  "fallback_message": null
+}

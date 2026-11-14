@@ -1,3 +1,6 @@
 fastapi
 uvicorn[standard]
 pydantic
+# Citizen reports storage. Optional at runtime: without it (or without
+# SUPABASE_URL/SUPABASE_KEY) reports fall back to an in-memory store.
+supabase>=2.0

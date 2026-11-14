@@ -1,0 +1,18 @@
+# Render Blueprint (free plan). Railway also picks up the Dockerfile directly.
+services:
+  - type: web
+    name: spherex-api
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      # Origin used to build absolute image URLs, e.g. https://spherex-api.onrender.com
+      # (unset: taken from each request, which also works behind Render's proxy).
+      - key: PUBLIC_BASE
+        sync: false
+      - key: CORS_ORIGINS
+        value: "*"
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
