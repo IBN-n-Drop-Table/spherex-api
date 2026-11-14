@@ -18,3 +18,10 @@ class SpectrumResponse(_Strict):
     epoch_id: str = Field(description="Epoch the photometry comes from", examples=["2025_M0"])
     is_cached_golden_path: bool
     spectrum_102_bands: Spectrum
+    # ---- added fields (optional) ----
+    saturated: bool | None = Field(
+        default=None, description="True when the core saturates: saturated pixels are excluded"
+    )
+    spectrum_message: str | None = Field(default=None, description="Why the spectrum is empty or partial")
+    fallback: bool = False
+    fallback_message: str | None = None

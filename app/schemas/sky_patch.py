@@ -25,6 +25,10 @@ class _Strict(BaseModel):
 ContaminationFlag = Annotated[str, StringConstraints(pattern=r"^[A-Z][A-Z0-9_]*$")]
 
 ImageFormat = Literal["png", "fits"]
+ChemicalBand = Literal["H2O", "CO2", "CO"]
+
+DETECTION_LABEL = "Detección Asistida por Software (BETA)"
+DETECTION_NOTICE = "Anomalía detectada por software: requiere verificación humana"
 _IMAGE_FORMAT_DOC = "Format of the image URLs (`png` for rendered cutouts, `fits` for raw IRSA files)"
 
 
@@ -75,7 +79,11 @@ class TimelapseEpoch(_Strict):
     image_format: ImageFormat = Field(description=_IMAGE_FORMAT_DOC + "; also applies to chemical_filters")
     image_url: HttpUrl
     chemical_filters: dict[str, HttpUrl] = Field(
-        description="Molecule name (e.g. H2O, CO2) -> filtered image URL"
+        description="Molecule name (H2O, CO2, CO) -> filtered image URL. A molecule is "
+        "omitted when no exposure of that visit covers its wavelength window"
+    )
+    n_exposures: int | None = Field(
+        default=None, ge=0, description="SPHEREx exposures stacked for this visit (added field)"
     )
 
 
@@ -85,6 +93,9 @@ class SpectralBand(_Strict):
     flux_mjy_sr: float = Field(description="Surface brightness (MJy/sr)")
     variance: float = Field(ge=0)
     detector: int = Field(ge=1, le=6, description="SPHEREx detector array (1-6)")
+    quality: Literal["good", "low"] | None = Field(
+        default=None, description="Added field. `low`: measured off-core because the core saturates"
+    )
 
 
 Spectrum = Annotated[list[SpectralBand], Field(max_length=102)]
@@ -99,6 +110,10 @@ class DetectedAnomaly(_Strict):
     snr_confidence: float = Field(ge=0, description="Signal-to-noise ratio")
     contamination_flags: list[ContaminationFlag]
     is_clean_detection: bool
+    kind: Literal["appeared", "disappeared"] | None = Field(
+        default=None,
+        description="Added field. `appeared`: brighter in epoch_a (later); `disappeared`: brighter in epoch_b",
+    )
     spectrum_epoch_id: str = Field(
         description="Epoch the spectrum was measured in: epoch_a if the source brightened, "
         "epoch_b if it faded"
@@ -114,13 +129,23 @@ class DifferenceImaging(_Strict):
     image_format: ImageFormat = Field(description=_IMAGE_FORMAT_DOC)
     subtracted_image_url: HttpUrl
     detected_anomalies: list[DetectedAnomaly]
+    detection_label: str | None = Field(
+        default=DETECTION_LABEL, description="Added field. UI label for the detector"
+    )
+    detection_notice: str | None = Field(
+        default=DETECTION_NOTICE, description="Added field. Every anomaly needs human verification"
+    )
 
 
 class LightCurvePoint(_Strict):
     epoch_id: str
     date: date
-    flux_mjy_sr: float
-    variance: float = Field(ge=0)
+    flux_mjy_sr: float | None = Field(
+        description="Mean surface brightness (MJy/sr) over the channels shared by all epochs. "
+        "`null` when there is no valid photometry (see `note`); never a fake 0"
+    )
+    variance: float | None = Field(ge=0)
+    note: str | None = Field(default=None, description="Added field. Why flux is null, if it is")
 
 
 class SkyPatchResponse(_Strict):
@@ -129,9 +154,29 @@ class SkyPatchResponse(_Strict):
     timelapse_epochs: list[TimelapseEpoch]
     difference_imaging: DifferenceImaging
     spectrum_102_bands: Spectrum = Field(
-        description="Target spectrum (epoch 1); up to 102 SPHEREx channels"
+        description="Target spectrum: up to 102 SPHEREx channels, from the visit in "
+        "`spectrum_epoch_id` (epoch 1 when that field is absent)"
     )
     light_curve: list[LightCurvePoint]
+    spectrum_epoch_id: str | None = Field(
+        default=None, description="Added field. Visit the target spectrum was measured in"
+    )
+    # ---- added fields (optional; older clients can ignore them) ----
+    saturated: bool | None = Field(
+        default=None,
+        description="True when the target core saturates SPHEREx (OVERFLOW/BLOOM): those pixels "
+        "are shown in the PNGs but excluded from spectrum and light curve",
+    )
+    spectrum_message: str | None = Field(
+        default=None, description="Why the spectrum is empty or partial, if it is"
+    )
+    band: ChemicalBand | None = Field(
+        default=None, description="Echo of the `band` query parameter. All filters are always returned"
+    )
+    fallback: bool = Field(
+        default=False, description="True when IRSA failed and this is cached data for another position"
+    )
+    fallback_message: str | None = None
 
     @model_validator(mode="after")
     def _consistent(self) -> Self:
@@ -145,6 +190,9 @@ class SkyPatchResponse(_Strict):
         diff = self.difference_imaging
         if diff.epoch_a == diff.epoch_b or not {diff.epoch_a, diff.epoch_b} <= epochs:
             raise ValueError("epoch_a and epoch_b must be two different timelapse epoch_ids")
+
+        if self.spectrum_epoch_id is not None and self.spectrum_epoch_id not in epochs:
+            raise ValueError("spectrum_epoch_id must be a timelapse epoch_id")
 
         ids = [a.anomaly_id for a in diff.detected_anomalies]
         if len(ids) != len(set(ids)):
