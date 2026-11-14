@@ -133,3 +133,59 @@ def test_legacy_table_is_complete_and_english():
         assert not SPANISH_CHARS.search(en) and not SPANISH_WORDS.search(en), en
     assert english("Already English.") == "Already English."
     assert english(None) is None
+
+
+def test_catalog_objects_texts_and_errors_are_in_english():
+    from app.core.simbad_settings import SimbadSettings
+    from app.routers.catalog_objects import get_simbad_limiter
+    from app.services.catalog_objects import FALLBACK_TEXT
+    from app.services.simbad import SimbadRow, SimbadService, SimbadUnavailable, get_simbad_service
+    from tests.test_simbad_service import FakeTransport, tap
+
+    url = "/api/v1/catalog-objects"
+    ok = FakeTransport(tap(["* 699", "Flare*", "Flare Star", 269.446, 4.767, None, None, 1500, 9.5, None, None,
+                            None, None, None]))
+    pre = SimbadRow.from_dict({"main_id": "Pre", "otype": "G", "otype_label": "Galaxy", "ra": 269.446,
+                               "dec": 4.767, "nbref": 1})
+
+    def serve(transport, gate_limit=1000, precomputed=None):
+        svc = SimbadService(SimbadSettings(tap_url="u"), transport=transport,
+                            gate=SlidingWindowLimiter(gate_limit, 1.0), precomputed=precomputed or (lambda k: None))
+        app.dependency_overrides[get_simbad_service] = lambda: svc
+        app.dependency_overrides[get_simbad_limiter] = lambda: SlidingWindowLimiter(10_000, 60)
+
+    with TestClient(app) as c:
+        try:
+            serve(ok)
+            body = c.get(url, params={"target": "BARNARDS_STAR"}).json()
+            assert body["objects"]
+            assert_english(body, "catalog-objects ok")
+            assert "SPHEREx detections" in body["notice"] and "SIMBAD" in body["data_credits"][0]["source"]
+            # every fallback wording, through the real endpoint
+            serve(FakeTransport(error=SimbadUnavailable("x")), precomputed=lambda k: [pre])
+            for params in ({"target": "BARNARDS_STAR"}, {"target": "BARNARDS_STAR", "type_filter": "no_common_stars"},
+                           {"target": "WISE_0855", "type_filter": "all"}):
+                body = c.get(url, params=params).json()
+                assert body["fallback_reason"] == "simbad_unavailable"
+                assert_english(body, f"catalog-objects fallback {params}")
+            serve(ok, gate_limit=0)
+            body = c.get(url, params={"target": "R_DRACONIS"}).json()
+            assert body["fallback_reason"] == "simbad_rate_limited"
+            assert_english(body, "catalog-objects rate cap")
+            for text in FALLBACK_TEXT.values():
+                assert not SPANISH_CHARS.search(text) and not SPANISH_WORDS.search(text), text
+            # errors: 404, 422 (several), 429
+            for params, status in (({"target": "NOPE"}, 404), ({}, 422), ({"target": "BARNARDS_STAR", "max_n": 99}, 422),
+                                   ({"target": "BARNARDS_STAR", "type_filter": "x"}, 422),
+                                   ({"target": "BARNARDS_STAR", "epoch": "nope"}, 422),
+                                   ({"ra": 1, "dec": 1, "fov": 25}, 422)):
+                res = c.get(url, params=params)
+                assert res.status_code == status, params
+                assert_english(res.json(), f"catalog-objects error {params}")
+            app.dependency_overrides[get_simbad_limiter] = lambda: SlidingWindowLimiter(0, 60)
+            res = c.get(url, params={"target": "BARNARDS_STAR"})
+            assert res.status_code == 429
+            assert_english(res.json(), "catalog-objects 429")
+        finally:
+            app.dependency_overrides.pop(get_simbad_service, None)
+            app.dependency_overrides.pop(get_simbad_limiter, None)

@@ -16,6 +16,7 @@ the exact JSON layout of a TAP answer, the join semantics, and that `ORDER BY` +
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
 from collections import OrderedDict
@@ -34,6 +35,11 @@ logger = logging.getLogger(__name__)
 
 MAG_BANDS = ("V", "G", "R", "J", "H", "K")  # first one with a value wins
 PAD_DEG = 0.0015  # covers the rounding of the cache key (0.001 deg => at most 0.0007 deg off-centre)
+# SIMBAD searches by J2000 position, the image is centred on the observation epoch. A star can have moved
+# up to PM_MAX * years since then (Barnard's Star, the fastest known, is 10.4 arcsec/yr: ~6 arcmin by 2026,
+# more than the 3.5 arcmin radius of a 5 arcmin patch), so the cone is widened by that much and each row is
+# kept only if ITS OWN proper motion could bring it into the image (see build_adql).
+PM_MAX_MAS_YR = 11_000.0
 
 FallbackReasonCode = str  # "simbad_unavailable" | "simbad_rate_limited"
 
@@ -64,9 +70,23 @@ class SimbadRow:
         return cls(**{k: d.get(k) for k in cls.__dataclass_fields__})  # type: ignore[arg-type]
 
 
-def build_adql(ra_deg: float, dec_deg: float, radius_deg: float, type_filter: TypeFilter, limit: int) -> str:
-    """Cone search with the geometric containment predicate, most-cited first."""
-    where = [f"CONTAINS(POINT('ICRS', b.ra, b.dec), CIRCLE('ICRS', {ra_deg:.6f}, {dec_deg:.6f}, {radius_deg:.6f})) = 1"]
+def build_adql(ra_deg: float, dec_deg: float, radius_deg: float, type_filter: TypeFilter, limit: int,
+               years: float = 0.0) -> str:
+    """Cone search with the geometric containment predicate, most-cited first.
+
+    `years` = time between J2000 and the image date. When > 0 the cone is widened by PM_MAX * years and an
+    object outside the plain cone is kept only if distance <= radius + its own |proper motion| * years.
+    """
+    centre = f"{ra_deg:.6f}, {dec_deg:.6f}"
+    point = "POINT('ICRS', b.ra, b.dec)"
+    base = f"CONTAINS({point}, CIRCLE('ICRS', {centre}, {radius_deg:.6f})) = 1"
+    if years > 0:
+        wide = radius_deg + PM_MAX_MAS_YR / 3.6e6 * years
+        reach = (f"DISTANCE({point}, POINT('ICRS', {centre})) <= {radius_deg:.6f} + "
+                 f"SQRT(POWER(b.pmra, 2) + POWER(b.pmdec, 2)) / 3600000.0 * {years:.4f}")
+        where = [f"CONTAINS({point}, CIRCLE('ICRS', {centre}, {wide:.6f})) = 1", f"({base} OR {reach})"]
+    else:
+        where = [base]
     extra = adql_condition(type_filter)
     if extra:
         where.append(extra)
@@ -157,8 +177,14 @@ class TTLCache:
                 self._items.popitem(last=False)
 
 
-def cache_key(ra_deg: float, dec_deg: float, radius_deg: float, type_filter: str) -> tuple:
-    return (round(ra_deg % 360.0, 3) % 360.0, round(dec_deg, 3), round(radius_deg, 3), type_filter)
+def quantize_years(years: float) -> float:
+    """Years since J2000 rounded UP to a quarter of a year: the query is a superset for every date in it."""
+    return max(0.0, math.ceil(years * 4.0) / 4.0)
+
+
+def cache_key(ra_deg: float, dec_deg: float, radius_deg: float, type_filter: str, years: float = 0.0) -> tuple:
+    return (round(ra_deg % 360.0, 3) % 360.0, round(dec_deg, 3), round(radius_deg, 3), type_filter,
+            quantize_years(years))
 
 
 def round_center(ra_deg: float, dec_deg: float) -> tuple[float, float]:
@@ -184,22 +210,23 @@ class SimbadService:
         self.precomputed = precomputed or (lambda key: None)
 
     def query(self, ra_deg: float, dec_deg: float, radius_deg: float,
-              type_filter: TypeFilter) -> list[SimbadRow]:
+              type_filter: TypeFilter, years: float = 0.0) -> list[SimbadRow]:
         """One live query (global cap applied). Raises SimbadRateLimited or SimbadUnavailable."""
         if self.gate.check("simbad") is not None:
             raise SimbadRateLimited("global SIMBAD rate cap reached")
-        adql = build_adql(ra_deg, dec_deg, radius_deg + PAD_DEG, type_filter, self.cfg.fetch_limit)
+        adql = build_adql(ra_deg, dec_deg, radius_deg + PAD_DEG, type_filter, self.cfg.fetch_limit,
+                          quantize_years(years))
         return parse_tap_json(self.transport(self.cfg.tap_url, adql, self.cfg.timeout_s))
 
     def lookup(self, ra_deg: float, dec_deg: float, radius_deg: float, type_filter: TypeFilter,
-               golden_key: str | None = None) -> Lookup:
-        key = cache_key(ra_deg, dec_deg, radius_deg, type_filter)
+               years: float = 0.0, golden_key: str | None = None) -> Lookup:
+        key = cache_key(ra_deg, dec_deg, radius_deg, type_filter, years)
         fresh = self.cache.get(key)
         if fresh is not None:
             return Lookup(fresh, "cache", None)
         ra_q, dec_q = round_center(ra_deg, dec_deg)
         try:
-            rows = self.query(ra_q, dec_q, round(radius_deg, 3), type_filter)
+            rows = self.query(ra_q, dec_q, round(radius_deg, 3), type_filter, years)
         except (SimbadUnavailable, SimbadRateLimited) as exc:
             reason = "simbad_rate_limited" if isinstance(exc, SimbadRateLimited) else "simbad_unavailable"
             logger.warning("SIMBAD not used (%s): %s", reason, exc)

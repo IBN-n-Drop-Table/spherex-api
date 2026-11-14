@@ -134,7 +134,7 @@ def test_the_query_is_made_at_the_rounded_centre_with_padding():
 
 
 def test_cache_key_rounding_and_wrap():
-    assert cache_key(359.99996, 1.0, 0.05, "all") == (0.0, 1.0, 0.05, "all")
+    assert cache_key(359.99996, 1.0, 0.05, "all") == (0.0, 1.0, 0.05, "all", 0.0)
     assert cache_key(10.0004, -5.0004, 0.05, "all") == cache_key(10.0001, -5.0001, 0.05, "all")
     assert cache_key(10.0, 5.0, 0.05, "all") != cache_key(10.0, 5.0, 0.05, "ir_galaxies")
 
@@ -195,3 +195,21 @@ def test_precomputed_file_loading(tmp_path):
     assert load_precomputed("BARNARDS_STAR", tmp_path)[0].main_id == "* 699"
     path.write_text("{not json", "utf-8")
     assert load_precomputed("BARNARDS_STAR", tmp_path) is None
+
+
+def test_cone_is_widened_for_fast_movers_and_kept_exact_for_each_row():
+    plain = build_adql(269.446, 4.767, 0.0589, "all", 200)
+    assert "DISTANCE" not in plain and "CIRCLE('ICRS', 269.446000, 4.767000, 0.058900)" in plain
+    q = build_adql(269.446, 4.767, 0.0589, "all", 200, years=25.75)
+    wide = 0.0589 + 11000 / 3.6e6 * 25.75
+    assert f"CIRCLE('ICRS', 269.446000, 4.767000, {wide:.6f})) = 1" in q  # ~0.138 deg: Barnard's J2000 spot is in it
+    assert "DISTANCE(POINT('ICRS', b.ra, b.dec), POINT('ICRS', 269.446000, 4.767000)) <= 0.058900 + " in q
+    assert "SQRT(POWER(b.pmra, 2) + POWER(b.pmdec, 2)) / 3600000.0 * 25.7500" in q
+    assert q.index("CONTAINS") < q.index("OR DISTANCE") and q.endswith("ORDER BY b.nbref DESC")
+
+
+def test_years_are_rounded_up_to_a_quarter_and_are_part_of_the_cache_key():
+    from app.services.simbad import quantize_years
+    assert quantize_years(25.61) == 25.75 and quantize_years(-1) == 0.0 and quantize_years(25.5) == 25.5
+    assert cache_key(1, 1, 0.05, "all", 25.6) == cache_key(1, 1, 0.05, "all", 25.7)
+    assert cache_key(1, 1, 0.05, "all", 25.6) != cache_key(1, 1, 0.05, "all", 26.4)

@@ -6,7 +6,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.core import errors
 from app.core.config import settings
-from app.routers import credits, epochs, jobs, reports, sky_patch, spectrum
+from app.routers import catalog_objects, credits, epochs, jobs, reports, sky_patch, spectrum
 from app.routers import chat as chat_router  # wow features: own files
 from app.routers import game as game_router
 from app.routers import loading_phrases as loading_phrases_router
@@ -55,7 +55,7 @@ app.add_middleware(
     expose_headers=["Location", "Retry-After"],  # 202 -> job polling URL
 )
 
-for module in (sky_patch, spectrum, jobs, epochs, reports, credits):
+for module in (sky_patch, spectrum, jobs, epochs, reports, credits, catalog_objects):
     app.include_router(module.router, prefix=settings.api_v1_prefix)
 app.include_router(credits.router)  # also at /credits: data citation must be easy to find
 app.include_router(chat_router.router, prefix=settings.api_v1_prefix)
