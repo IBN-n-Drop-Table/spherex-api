@@ -247,6 +247,15 @@ uvicorn app.main:app --reload --port 8000 --env-file .env
 
 The repo ships a `Dockerfile`, `.dockerignore` and `render.yaml` for deployment (e.g. on Render). Set `PUBLIC_BASE` to the server's public URL.
 
+After deploying, run the smoke test against the public URL (standard library only, nothing to install):
+
+```bash
+python scripts/smoke_test.py https://<your-service>.onrender.com
+python scripts/smoke_test.py https://<your-service>.onrender.com --skip-live   # without the ~1 min live job
+```
+
+It checks `/health`, `/sky-patch` and `/spectrum` for the 5 objects (with `data_credits`), `/credits`, that every image URL and the job `Location` use the scheme and host of the URL you gave (https on a public deploy), CORS on a PNG and on a preflight, the error format, `job_not_found`, and a live `POST /jobs` (fov 2′) polled until it completes. It prints `OK`/`FALLO` per check and exits 1 if anything failed. The first request waits up to 2 min for a sleeping free instance to wake up.
+
 ---
 
 ## Supabase
@@ -301,6 +310,7 @@ scripts/
   generate_golden_path.py     # offline IRSA -> JSON/PNG pipeline
   setup_supabase.py           # migration + bucket + optional PNG mirror
   export_contract_example.py  # writes docs/contract-example.json
+  smoke_test.py               # checks a deployed API (OK/FALLO per check)
 supabase/migrations/      # SQL for citizen_reports (table, indexes, RLS, verify RPC)
 docs/                     # contract-example.json
 notebooks/
