@@ -39,6 +39,8 @@ class SlidingWindowLimiter:
             while hits and hits[0] <= now - self.window_s:
                 hits.popleft()
             if len(hits) >= self.limit:
+                if not hits:  # limit 0: everything is blocked
+                    return self.window_s
                 return max(hits[0] + self.window_s - now, 0.0)
             hits.append(now)
             return None
@@ -59,6 +61,6 @@ def enforce(limiter: SlidingWindowLimiter, request: Request, what: str) -> None:
         retry = max(1, math.ceil(wait))
         raise HTTPException(
             status_code=429,
-            detail=f"Demasiadas peticiones de {what}. Espera {retry} s y vuelve a intentarlo.",
+            detail=f"Too many {what} requests. Wait {retry} s and try again.",
             headers={"Retry-After": str(retry)},
         )

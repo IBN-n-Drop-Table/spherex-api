@@ -42,7 +42,7 @@ class TargetSummary(_Strict):
     light_left_years_ago: int | None = Field(
         default=None, description="Light-travel time in years, rounded (2 significant figures if uncertain)")
     distance_uncertain: bool | None = Field(
-        default=None, description="True when the parallax is less reliable: say 'aproximadamente'")
-    description_es: str | None = Field(default=None, description="1-2 plain-language sentences (Spanish)")
+        default=None, description="True when the parallax is less reliable: say 'roughly'")
+    description_es: str | None = Field(default=None, description="1-2 plain-language sentences (English, despite the field name)")
     story_es: str | None = Field(
-        default=None, examples=["La luz que ves salió de esta estrella hace unos 6 años."])
+        default=None, examples=["The light you see left this star about 6 years ago."])

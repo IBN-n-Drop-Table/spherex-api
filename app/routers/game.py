@@ -51,17 +51,17 @@ LimitersDep = Annotated[dict[str, SlidingWindowLimiter], Depends(get_game_limite
 
 def _session_errors(exc: Exception) -> HTTPException:
     if isinstance(exc, SessionNotFound):
-        return HTTPException(404, "Partida no encontrada.")
+        return HTTPException(404, "Game not found.")
     if isinstance(exc, SessionExpired):
-        return HTTPException(410, "La partida ha caducado. Empieza una nueva.")
+        return HTTPException(410, "This game has expired. Start a new one.")
     if isinstance(exc, RoundNotFound):
-        return HTTPException(404, "Ronda no encontrada en esta partida.")
+        return HTTPException(404, "Round not found in this game.")
     if isinstance(exc, AlreadyAnswered):
-        return HTTPException(409, "Ya respondiste a esta ronda: solo hay un intento por ronda.")
+        return HTTPException(409, "You already answered this round: there is one attempt per round.")
     if isinstance(exc, AlreadyFinished):
-        return HTTPException(409, "Esta partida ya está terminada.")
+        return HTTPException(409, "This game is already finished.")
     if isinstance(exc, NothingPlayed):
-        return HTTPException(409, "Juega al menos una ronda antes de guardar la puntuación.")
+        return HTTPException(409, "Play at least one round before saving your score.")
     raise exc
 
 
@@ -71,20 +71,20 @@ def create_session(
     request: Request, game: GameDep, limiters: LimitersDep,
     body: Annotated[NewSession | None, Body()] = None,
 ) -> dict[str, Any]:
-    enforce(limiters["sessions"], request, "partidas")
+    enforce(limiters["sessions"], request, "new game")
     try:
         session = game.create((body or NewSession()).rounds)
     except OverflowError as exc:
-        raise HTTPException(503, "Hay demasiadas partidas activas. Prueba en un minuto.") from exc
+        raise HTTPException(503, "Too many games in progress. Try again in a minute.") from exc
     except RuntimeError as exc:
-        raise HTTPException(503, "El juego no está disponible: faltan los datos en caché.") from exc
+        raise HTTPException(503, "The game is not available: the cached data is missing.") from exc
     return to_public(session, public_base(request))
 
 
 @router.post("/guess", response_model=GuessResult,
              summary="One guess per round: where does the object move?")
 def guess(body: GuessRequest, request: Request, game: GameDep, limiters: LimitersDep) -> GuessResult:
-    enforce(limiters["guess"], request, "intentos")
+    enforce(limiters["guess"], request, "guess")
     try:
         return game.guess(body.session_id, body.round_id, body.x, body.y, body.time_ms)
     except ValueError as exc:
@@ -97,7 +97,7 @@ def guess(body: GuessRequest, request: Request, game: GameDep, limiters: Limiter
              summary="Save the score, computed on the server from the session's guesses")
 def finish(body: FinishRequest, request: Request, game: GameDep, limiters: LimitersDep,
            scores: Annotated[ScoreService, Depends(get_score_service)]) -> FinishResult:
-    enforce(limiters["finish"], request, "puntuaciones")
+    enforce(limiters["finish"], request, "score")
     try:
         session = game.finish(body.session_id)
     except Exception as exc:

@@ -23,9 +23,9 @@ router = APIRouter(tags=["jobs"])
 
 # Jobs live in memory: a restart (e.g. Render spinning the free instance down) or the
 # 1 h TTL after finishing forgets them. The frontend should start the job again.
-JOB_NOT_FOUND = "El análisis se perdió por un reinicio del servidor; vuelve a lanzarlo."
+JOB_NOT_FOUND = "The analysis was lost because the server restarted. Please start it again."
 JOB_NOT_FOUND_CODE = "job_not_found"
-CACHED_MESSAGE = "Datos precalculados (Golden Path): respuesta instantánea."
+CACHED_MESSAGE = "Precomputed data (Golden Path): instant answer."
 
 
 @router.post(

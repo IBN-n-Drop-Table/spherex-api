@@ -26,7 +26,7 @@ def test_barnards_star_keeps_its_empty_spectrum_and_explains_it(client):
     assert body["saturated"] is True and body["quality"] == "low"
     assert body["spectrum_102_bands"] == [] and "satura" in body["spectrum_message"]
     assert all(p["flux_mjy_sr"] is None and "satura" in p["note"] for p in body["light_curve"])
-    assert "10,3″" in body["science_note"] and "10,2″" in body["science_note"]
+    assert "10.3″" in body["science_note"] and "10.2″" in body["science_note"]
     spec = get(client, "spectrum", "BARNARDS_STAR")
     assert spec["spectrum_102_bands"] == [] and spec["quality"] == "low"
 
@@ -39,7 +39,7 @@ def test_rw_aurigae_light_curve_is_a_biased_lower_limit(client):
     assert body["spectrum_102_bands"] and all(b["quality"] == "low" for b in body["spectrum_102_bands"])
     spec = get(client, "spectrum", "RW_AURIGAE")
     assert spec["quality"] == "low" and all(b["quality"] == "low" for b in spec["spectrum_102_bands"])
-    assert "límites inferiores" in spec["science_note"]
+    assert "lower limits" in spec["science_note"]
 
 
 def test_r_draconis_says_the_halo_dims_but_the_core_saturates(client):
@@ -48,9 +48,9 @@ def test_r_draconis_says_the_halo_dims_but_the_core_saturates(client):
     assert body["spectrum_102_bands"] == [] and body["spectrum_message"]
     for p in body["light_curve"]:
         assert p["flux_mjy_sr"] is None
-        assert "Sin fotometría válida" in p["note"]  # the pipeline's own note is kept
-        assert "~0,56" in p["note"] and "Mira" in p["note"] and "saturado" in p["note"]
-    assert "~0,56" in body["science_note"]
+        assert "No valid photometry" in p["note"]  # the pipeline's own note is kept
+        assert "~0.56" in p["note"] and "Mira" in p["note"] and "saturated" in p["note"]
+    assert "~0.56" in body["science_note"]
 
 
 def test_a_clean_object_gets_no_note(client):

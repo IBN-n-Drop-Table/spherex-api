@@ -19,12 +19,12 @@ def test_wise_0855_sky_patch_carries_the_note(client):
     body = client.get("/api/v1/sky-patch", params={"target": "WISE_0855"}).json()
     assert body["science_note"] == WISE_0855_NOTE
     assert body["quality"] == "unvalidated"
-    assert body["light_curve"] and all("Sin validar" in p["note"] for p in body["light_curve"])
+    assert body["light_curve"] and all("Unvalidated" in p["note"] for p in body["light_curve"])
 
 
 def test_the_note_says_what_was_measured():
-    for fact in ("estrella fija vecina", "~11″", "1 µm", "detector 6", "7,9″", "8,05″",
-                 "no deben", "enana Y", "sigue su movimiento propio"):
+    for fact in ("neighboring fixed star", "~11″", "1 µm", "detector 6", "7.9″", "8.05″",
+                 "must not", "Y dwarf", "follows its proper motion"):
         assert fact in WISE_0855_NOTE
 
 

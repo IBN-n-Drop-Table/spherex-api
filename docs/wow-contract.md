@@ -26,7 +26,7 @@ Seis campos opcionales nuevos por objeto:
 | `distance_ly` | number | Distancia en años luz, calculada del paralaje |
 | `distance_source` | string | Cita del paralaje (Gaia DR3 con `source_id`, o Kirkpatrick et al. 2021 para WISE 0855) |
 | `light_left_years_ago` | int | Años que tardó la luz, redondeado (2 cifras significativas si `distance_uncertain`) |
-| `distance_uncertain` | bool | `true` en R Draconis y RW Aurigae: decir "aproximadamente" |
+| `distance_uncertain` | bool | `true` en R Draconis y RW Aurigae: el texto dice "roughly" |
 | `description_es` | string | 1–2 frases en lenguaje llano |
 | `story_es` | string | Frase lista para el subtítulo |
 
@@ -44,12 +44,14 @@ Seis campos opcionales nuevos por objeto:
   "distance_source": "Gaia DR3 (Gaia Collaboration, Vallenari et al. 2023, A&A 674, A1), source_id 4472832130942575872: parallax 546.976 ± 0.040 mas",
   "light_left_years_ago": 6,
   "distance_uncertain": false,
-  "description_es": "Una estrella enana roja, pequeña y fría, de las más cercanas al Sol. Es la estrella que más rápido se desplaza en nuestro cielo.",
-  "story_es": "La luz que ves salió de esta estrella hace unos 6 años."
+  "description_es": "A small, cool red dwarf, one of the closest stars to the Sun. It is the star that moves fastest across our sky.",
+  "story_es": "The light you see left this star about 6 years ago."
 }
 ```
 
 Valores actuales: Barnard 6 años, Epsilon Indi B 12, WISE 0855 7, RW Aurigae ≈510 (incierto), R Draconis ≈2600 (incierto).
+
+**Idioma.** Todos los textos para el usuario (`description_es`, `story_es`, `explanation_es`, `scoring`, `answer`, `cautions`, `disclaimer`, sugerencias, errores) están en **inglés**. Los campos conservan su nombre con `_es` para no romper el contrato.
 
 ---
 
@@ -61,7 +63,7 @@ Entrada:
 
 ```json
 {
-  "message": "¿Por qué se mueve?",
+  "message": "Why does it move?",
   "tone": "easy",
   "context": {
     "target": "BARNARDS_STAR",
@@ -75,8 +77,8 @@ Entrada:
     "fallback_reason": null
   },
   "history": [
-    {"role": "user", "content": "¿Qué es esto?"},
-    {"role": "assistant", "content": "Es la estrella de Barnard..."}
+    {"role": "user", "content": "What is this?"},
+    {"role": "assistant", "content": "This is Barnard's Star..."}
   ]
 }
 ```
@@ -94,14 +96,14 @@ Salida (siempre 200, salvo 422 o 429):
 
 ```json
 {
-  "answer": "Todas las estrellas se mueven por la galaxia, pero las lejanas parecen quietas. ...",
+  "answer": "All stars move through the galaxy, but distant ones seem to stand still. ...",
   "provider": "canned",
   "cached": false,
   "fallback": true,
-  "disclaimer": "Asistente de IA: puede equivocarse. Los hallazgos requieren verificación humana.",
+  "disclaimer": "AI assistant: it can make mistakes. Any finding requires human verification.",
   "cautions": [
-    "El desplazamiento esperado es menor que un píxel de SPHEREx (6,15″): la señal del movimiento es débil.",
-    "La estrella está saturada: es tan brillante que el detector se 'deslumbra' y su brillo no se puede medir bien."
+    "The expected shift is smaller than one SPHEREx pixel (6.15″): the motion signal is weak.",
+    "The star is saturated: it is so bright that it 'dazzles' the detector, so its brightness cannot be measured well."
   ]
 }
 ```
@@ -113,7 +115,7 @@ Salida (siempre 200, salvo 422 o 429):
 - Error 429 por exceso de peticiones de una IP: lee la cabecera `Retry-After` (en segundos).
 
 ```json
-{"detail": "Demasiadas peticiones de chat. Espera 37 s y vuelve a intentarlo.", "code": "http_429", "errors": null}
+{"detail": "Too many chat requests. Wait 37 s and try again.", "code": "http_429", "errors": null}
 ```
 
 ### `GET /api/v1/chat/suggestions?target=BARNARDS_STAR`
@@ -124,10 +126,10 @@ Salida (siempre 200, salvo 422 o 429):
 {
   "target": "BARNARDS_STAR",
   "suggestions": [
-    "¿Por qué se mueve esta estrella?",
-    "¿Qué es el blink comparator?",
-    "¿A qué distancia está?",
-    "¿Qué es la resta de imágenes?"
+    "Why does this star move?",
+    "What is the blink comparator?",
+    "How far away is it?",
+    "What is image subtraction?"
   ]
 }
 ```
@@ -142,7 +144,7 @@ Las rondas solo usan **Barnard's Star y Epsilon Indi B**, con pares consecutivos
 
 **Blink.** Alterna `image_b_url` (visita anterior, `epoch_b`) con `image_a_url` (visita posterior, `epoch_a`). Cada ronda es un recorte distinto, así que el objeto no está en el centro.
 
-**Pista.** `hint_image_url` solo aparece en rondas `weak_signal: true`. Es la resta (posterior − anterior) del mismo recorte: un objeto que se mueve deja una pareja rojo-azul. Si `weak_signal` es true, avisa: "el desplazamiento es menor que un píxel de SPHEREx".
+**Pista.** `hint_image_url` solo aparece en rondas `weak_signal: true`. Es la resta (posterior − anterior) del mismo recorte: un objeto que se mueve deja una pareja rojo-azul. Si `weak_signal` es true, avisa en inglés, por ejemplo: "The shift is smaller than one SPHEREx pixel".
 
 ### `POST /api/v1/game/sessions` → 201
 
@@ -190,7 +192,7 @@ El cuerpo es opcional: `{"rounds": 5}`, con un valor entre 3 y 5 (5 por defecto)
       "expected_shift_arcsec": 2.04
     }
   ],
-  "scoring": "Fallo (más de 20 píxeles del camino del objeto): 0 puntos. Acierto: 500 puntos, más hasta 300 por precisión y hasta 200 por rapidez (si respondes en menos de 30 s). Máximo 1000 por ronda."
+  "scoring": "Miss (more than 20 pixels from the object's path): 0 points. Hit: 500 points, plus up to 300 for precision and up to 200 for speed (if you answer in under 30 s). Up to 1000 per round."
 }
 ```
 
@@ -210,7 +212,7 @@ La sesión caduca a los 15 minutos sin actividad; cada intento renueva ese plazo
   "answer": {"x": 194.8, "y": 59.8},
   "answer_path": [{"x": 194.0, "y": 70.0}, {"x": 195.6, "y": 49.6}],
   "hit_radius_px": 20.0,
-  "explanation_es": "¡Lo encontraste! Barnard's Star se desplazó unos 10,2″ en 359 días (20 píxeles en esta imagen), según su movimiento propio medido por Gaia DR3; su posición en estas imágenes de SPHEREx coincide con esa predicción."
+  "explanation_es": "You found it! Barnard's Star moved about 10.2″ in 359 days (20 pixels in this image), according to its proper motion measured by Gaia DR3; its position in these SPHEREx images matches that prediction."
 }
 ```
 

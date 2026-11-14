@@ -40,7 +40,7 @@ class JobResponse(_Strict):
         "(`difference`: consecutive-visit differences, only with 3+ visits)",
     )
     progress: float | None = Field(default=None, ge=0, le=1, description="0..1")
-    message: str | None = Field(default=None, description="Human-readable progress, in Spanish")
+    message: str | None = Field(default=None, description="Human-readable progress, in English")
     eta_s: int | None = Field(default=None, ge=0, description="Estimated seconds left, when known")
     retry_after_ms: int | None = Field(default=None, ge=0, description="Suggested polling interval")
 

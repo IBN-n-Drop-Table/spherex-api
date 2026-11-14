@@ -223,23 +223,23 @@ def test_hit_miss_and_one_attempt_per_round(game):
     assert body["hit"] is True and body["distance_px"] == 0 and body["score"] == 1000
     assert body["answer"] == {"x": round(mid[0], 1), "y": round(mid[1], 1)}
     assert len(body["answer_path"]) == 2
-    assert "Barnard's Star se desplazó unos 10,2″ en 359 días" in body["explanation_es"]
+    assert "Barnard's Star moved about 10.2″ in 359 days" in body["explanation_es"]
     assert "Gaia DR3" in body["explanation_es"]
 
     again = guess(game, s, r0, *mid)
-    assert again.status_code == 409 and "un intento" in again.json()["detail"]
+    assert again.status_code == 409 and "one attempt" in again.json()["detail"]
 
     far = (0.5, 0.5) if mid[0] > 100 else (299, 299)
     miss = guess(game, s, r1, *far).json()
     assert miss["hit"] is False and miss["score"] == 0 and miss["distance_px"] > HIT_RADIUS_PX
-    assert miss["explanation_es"].startswith("Esta vez no")
+    assert miss["explanation_es"].startswith("Not this time")
 
 
 def test_weak_signal_rounds_say_so(game):
     s = new_session(game)
     hard = s["rounds"][-1]
     body = guess(game, s, hard, 150, 150).json()
-    assert "menos de un píxel de SPHEREx (6,15″)" in body["explanation_es"]
+    assert "less than one SPHEREx pixel (6.15″)" in body["explanation_es"]
 
 
 @pytest.mark.parametrize("x, y", [(300, 10), (10, 300), (-1, 10), (1e9, 1)])
