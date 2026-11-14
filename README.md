@@ -9,6 +9,7 @@ Backend for the **SPHEREx** citizen-science app (NASA Space Apps 2026). It serve
 
 ## Contents
 
+- [TLDR](#tldr)
 - [Run locally](#run-locally)
 - [Tests](#tests)
 - [Endpoints](#endpoints)
@@ -25,33 +26,30 @@ Backend for the **SPHEREx** citizen-science app (NASA Space Apps 2026). It serve
 
 ---
 
+## TLDR
+This api serves already processed SphereX images from a given right ascension, declination, field of view and band.
+It has some preprocessed targets required by Nasa Space Apps to ensure a fast response for these targets, 
+these targets are Barnard’s Star, Epsilon Indi B, WISE 0855, RW Aurigae and R Draconis. 
+If the target coordinates do not match the ones pre-cached, a job process is run to create the new spectrogram for those
+coordinates.
+
+
 ## Run locally
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+pip install -r requirements-science.txt 
 uvicorn app.main:app --reload --port 8000
 ```
+Once running you can acces the api docs and the api healthcheck at:
 
 - Interactive docs (OpenAPI): <http://localhost:8000/docs>
 - Health check: <http://localhost:8000/health> (reports `live_processing` and `reports_backend`)
 
-```bash
-curl "http://localhost:8000/api/v1/sky-patch?target=WISE_0855"
-curl "http://localhost:8000/api/v1/sky-patch?ra=133.795&dec=-7.245&fov=5"
-curl "http://localhost:8000/api/v1/sky-patch?ra=08h55m10.831s&dec=-7d14m42.53s&band=H2O"
-curl -i "http://localhost:8000/api/v1/sky-patch?target=M31"          # 404
-curl -i "http://localhost:8000/api/v1/sky-patch?ra=10.68&dec=41.27"  # 202 + job
-```
-
-Live jobs run the pipeline inside the API process. To enable them:
-
-```bash
-pip install -r requirements-science.txt   # in the same venv
-```
-
 `/health` shows `"live_processing": "available"` when it is ready. To share the API with frontend developers on the same network, use `--host 0.0.0.0`.
+
 
 ## Tests
 
