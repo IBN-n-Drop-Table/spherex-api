@@ -83,7 +83,7 @@ from app.core.patch_geometry import (  # noqa: E402
 )
 from app.core.targets import CATALOG, Target  # noqa: E402
 from app.core.urls import to_internal, to_relative  # noqa: E402
-from app.schemas.sky_patch import SkyPatchResponse  # noqa: E402
+from app.schemas.sky_patch import DETECTION_LABEL, DETECTION_NOTICE, SkyPatchResponse  # noqa: E402
 
 log = logging.getLogger("golden_path")
 
@@ -1026,6 +1026,8 @@ def build_payload(target: Target, uploader: StorageUploader, args, cached: bool 
             "image_format": "png",
             "subtracted_image_url": diff_url,
             "detected_anomalies": anomalies,
+            "detection_label": DETECTION_LABEL,
+            "detection_notice": DETECTION_NOTICE,
         },
         "spectrum_102_bands": spectrum,
         "spectrum_epoch_id": epochs[best].epoch_id,
