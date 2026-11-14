@@ -13,6 +13,7 @@ Errores: el formato de siempre, `{"detail", "code", "errors"}`. Las URLs de imag
 | POST | `/api/v1/game/guess` | Un intento por ronda |
 | POST | `/api/v1/game/finish` | Guardar la puntuación (calculada en el servidor) |
 | GET | `/api/v1/game/leaderboard` | Top 20 |
+| GET | `/api/v1/loading-phrases` | Frases para las pantallas de carga |
 
 ---
 
@@ -266,3 +267,57 @@ La sesión caduca a los 15 minutos sin actividad; cada intento renueva ese plazo
 ```
 
 Muestra el top 20 por puntuación; en caso de empate gana la más antigua. Con `backend: "memory"` la clasificación se pierde al reiniciar el servidor.
+
+---
+
+## 4. Frases de carga: `GET /api/v1/loading-phrases`
+
+Frases ligeras en inglés para las pantallas de carga, agrupadas por categoría. Elige una al azar de la categoría que toque:
+
+| Categoría | Cuándo usarla |
+|---|---|
+| `generic` | Cualquier espera |
+| `cold_start` | El servidor tarda en despertar (Render gratuito) |
+| `subtraction` | Mientras carga la resta de imágenes |
+| `game` | Mientras se prepara una partida |
+| `chat` | Mientras responde el asistente |
+
+El endpoint no depende de la base de datos, de los proveedores de IA ni de los datos en caché, así que responde aunque todo lo demás falle. Lleva `Cache-Control: public, max-age=3600`, así que el navegador puede guardarlo una hora: pídelo una vez al arrancar y ten una copia local en el frontend por si el servidor aún no ha despertado.
+
+```json
+{
+  "phrases": {
+    "generic": [
+      "Warming up the telescope. It's very cold up there.",
+      "Counting photons one by one. Please hold.",
+      "Asking the universe to hold still for a second.",
+      "Polishing a mirror we definitely don't own.",
+      "Convincing light to arrive faster. It's not listening.",
+      "Dusting off 102 infrared colors.",
+      "Aligning the stars. Some are being difficult.",
+      "Loading the cosmos. It's a big file."
+    ],
+    "cold_start": [
+      "Our server is waking up. It doesn't do mornings either.",
+      "Brewing coffee for the backend. Almost ready.",
+      "The API is stretching. Great things need warm-ups."
+    ],
+    "subtraction": [
+      "Subtracting the stars that stayed. Looking for the ones that sneaked away.",
+      "Spot the difference, but the difference is a planet.",
+      "Hunting things that move while pretending not to.",
+      "Making the boring stars disappear."
+    ],
+    "game": [
+      "Shuffling the sky. No cheating, we checked.",
+      "Hiding something in the stars. Good luck.",
+      "Your 1930 astronomer moment is loading."
+    ],
+    "chat": [
+      "Asking a very smart parrot who has read a lot of astronomy.",
+      "Thinking in infrared. It takes a second.",
+      "Finding words simpler than \"parallax\"."
+    ]
+  }
+}
+```

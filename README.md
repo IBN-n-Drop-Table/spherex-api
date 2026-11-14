@@ -556,6 +556,10 @@ Contract and examples: [docs/wow-contract.md](docs/wow-contract.md).
 
 `GET /api/v1/targets` also carries distances and plain-language texts for the subtitles: `distance_ly`, `distance_source`, `light_left_years_ago`, `distance_uncertain`, `description_es` and `story_es`. They are derived from cited parallaxes in `app/core/target_stories.py`.
 
+## Loading phrases
+
+`GET /api/v1/loading-phrases` returns light-hearted English phrases for loading screens, grouped as `generic`, `cold_start`, `subtraction`, `game` and `chat`. They live in `app/core/loading_phrases.py`, which imports nothing else from the app, so the endpoint answers even while the database, the AI providers or the cached data are unavailable (for example while a free Render instance wakes up). Responses carry `Cache-Control: public, max-age=3600`. New phrases must not claim anything we cannot back up. Example: [docs/wow-contract.md](docs/wow-contract.md#4-frases-de-carga-get-apiv1loading-phrases).
+
 ## License
 
 MIT, see [LICENSE](LICENSE).
