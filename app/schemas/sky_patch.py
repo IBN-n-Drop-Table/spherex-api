@@ -105,7 +105,9 @@ class SpectralBand(_Strict):
     variance: float = Field(ge=0)
     detector: int = Field(ge=1, le=6, description="SPHEREx detector array (1-6)")
     quality: Literal["good", "low"] | None = Field(
-        default=None, description="Added field. `low`: measured off-core because the core saturates"
+        default=None,
+        description="Added field, set when served. `low`: the target core saturates SPHEREx, so the band "
+        "was measured on the unsaturated pixels only (a biased lower limit). null: not assessed",
     )
 
 

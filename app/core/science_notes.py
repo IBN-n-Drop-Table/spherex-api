@@ -34,6 +34,13 @@ WISE_0855_NOTE = (
     "posición de catálogo de 2010."
 )
 
+# Any response with `saturated: true` (cached or live) gets this on every light-curve
+# point that has a flux: photometry used only the unsaturated pixels of the aperture.
+SATURATED_LIGHT_CURVE_NOTE = (
+    "Límite inferior sesgado: el núcleo satura SPHEREx y solo se miden los píxeles no saturados de la "
+    "apertura. No sirve para afirmar variabilidad."
+)
+
 SCIENCE_NOTES: dict[str, ScienceNote] = {
     "WISE_0855": ScienceNote(
         science_note=WISE_0855_NOTE,
@@ -41,6 +48,33 @@ SCIENCE_NOTES: dict[str, ScienceNote] = {
         light_curve_note=(
             "Sin validar: el flujo está mezclado con una estrella fija vecina (a ~11″); no indica la "
             "variabilidad de WISE 0855."
+        ),
+    ),
+    "BARNARDS_STAR": ScienceNote(
+        science_note=(
+            "El núcleo satura SPHEREx: no hay espectro ni curva de luz válidos de la estrella. Sí se ve su "
+            "movimiento propio: entre la primera y la última visita su centroide se desplaza 10,3″ hacia el "
+            "norte, frente a 10,2″ esperados."
+        ),
+        quality="low",
+    ),
+    "RW_AURIGAE": ScienceNote(
+        science_note=(
+            "El núcleo satura SPHEREx: el espectro y la curva de luz se miden solo con los píxeles no "
+            "saturados de la apertura. Son límites inferiores sesgados y no sirven para afirmar variabilidad."
+        ),
+        quality="low",
+    ),
+    "R_DRACONIS": ScienceNote(
+        science_note=(
+            "El núcleo satura SPHEREx: no hay espectro ni fotometría válida del núcleo. El oscurecimiento del "
+            "halo entre la primera y la última visita es real (cociente de flujo ~0,56) y coherente con una "
+            "Mira en otra fase de su ciclo."
+        ),
+        quality="low",
+        light_curve_note=(
+            "El halo sí se oscurece entre la primera y la última visita (cociente ~0,56), coherente con una "
+            "Mira en otra fase, pero el núcleo está saturado."
         ),
     ),
 }

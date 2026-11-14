@@ -122,7 +122,8 @@ What the frontend gets as a response from this endpoint (all image URLs absolute
 - `difference_imaging`: `epoch_a` (last visit) minus `epoch_b` (first visit): the longest baseline, so the most motion (`kind: "first_vs_last"`). `detected_anomalies[]` come with `kind` (`appeared`/`disappeared`), `contamination_flags`, `is_clean_detection`, and the labels `detection_label` ("Detección Asistida por Software (BETA)") and `detection_notice` ("requiere verificación humana").
 - `difference_imaging.pairwise[]`: one difference per pair of **consecutive** visits, for the blink comparator. See [Epoch differences](#epoch-differences-first-vs-last-and-consecutive).
 - `spectrum_102_bands` (from `spectrum_epoch_id`) and `light_curve` (one point per visit). Where there is no valid photometry, `flux_mjy_sr` is `null` with a `note`, never 0.
-- `saturated` / `spectrum_message`: bright stars (Barnard's Star, R Draconis) saturate SPHEREx. Their cores are **shown** in the PNGs but **excluded** from the spectrum and light curve.
+- `saturated` / `spectrum_message`: bright stars (Barnard's Star, RW Aurigae, R Draconis) saturate SPHEREx. Their cores are **shown** in the PNGs but **excluded** from the spectrum and light curve. Such responses also get `quality: "low"`, `quality: "low"` on every spectral band, and a lower-limit `note` on light-curve points (see [What the data supports](#what-the-data-supports-object-by-object)).
+- `science_note` / `quality`: what can and cannot be claimed from this object, added when served.
 - `fallback` / `fallback_message`: see [Offline-first fallback](#offline-first-fallback).
 
 ### Jobs with progress (when coordinates are not in the cache)
@@ -452,6 +453,16 @@ Some caveats are added to responses **when they are served**, from a static tabl
 | The patch follows its proper motion: it is centred on its position at the first visit, ~2′ west of the 2010 catalogue position. | That the broadband spectrum or light curve is WISE 0855's: both are blended with a fixed field star ~11″ away, which dominates at 1 µm. |
 | In detector 6 (4.4–5 µm) its centroid moves 7.9″ west between the first and last visit, against 8.05″ expected. | That the software detects it: none of the anomalies falls on it, and the broadband difference image does not show its dipole. |
 | | That this is the spectrum of a Y dwarf. |
+
+**Saturated objects** (`saturated: true`: Barnard's Star, RW Aurigae, R Draconis, and any live position that saturates). The rule is applied to every such response: `quality: "low"` on the response and on each spectral band, and every light-curve point that has a flux gets the note *"Límite inferior sesgado ... No sirve para afirmar variabilidad"*: the photometry used only the unsaturated pixels of the aperture.
+
+| Object | You can say | You cannot say |
+|---|---|---|
+| Barnard's Star | Its proper motion shows in the difference image: 10.3″ north between the first and last visit, against 10.2″ expected. | Anything from its spectrum or light curve: there are none (empty, `null` + `note`). |
+| RW Aurigae | That the core saturates. | That it varies: its spectrum (58 bands) and light curve are biased lower limits. |
+| R Draconis | Its halo dims between the first and last visit (flux ratio ~0.56), consistent with a Mira at another phase. | Anything about the core: there is no valid spectrum or light curve. |
+
+**Epsilon Indi B** is not saturated and gets no note: its spectrum (methane dip near 3.3 µm, peak at ~4 µm) and its proper-motion dipole (6.2″ measured against 6.6″ expected) are consistent with a T dwarf.
 
 ---
 

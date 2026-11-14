@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from app.core.science_notes import SCIENCE_NOTES, ScienceNote
-from app.schemas.sky_patch import LightCurvePoint, SkyPatchResponse
+from app.core.science_notes import SATURATED_LIGHT_CURVE_NOTE, SCIENCE_NOTES, ScienceNote
+from app.schemas.sky_patch import LightCurvePoint, SkyPatchResponse, SpectralBand
 from app.schemas.spectrum import SpectrumResponse
 from app.services.golden_path import normalize_target
 
@@ -27,22 +27,50 @@ def _with_note(point: LightCurvePoint, extra: str | None) -> LightCurvePoint:
     return point.model_copy(update={"note": note})
 
 
+def _low(bands: list[SpectralBand]) -> list[SpectralBand]:
+    return [b.model_copy(update={"quality": "low"}) for b in bands]
+
+
+def _quality(note: ScienceNote | None, saturated: bool | None) -> str | None:
+    if note is not None and note.quality is not None:
+        return note.quality
+    return "low" if saturated else None
+
+
+def _light_curve_point(point: LightCurvePoint, saturated: bool | None, note: ScienceNote | None) -> LightCurvePoint:
+    if saturated and point.flux_mjy_sr is not None:  # null points already explain themselves
+        point = _with_note(point, SATURATED_LIGHT_CURVE_NOTE)
+    return _with_note(point, note.light_curve_note if note else None)
+
+
 def annotate_patch(patch: SkyPatchResponse) -> SkyPatchResponse:
+    """Per-object note (science_notes.py) + the saturation rule, for any patch:
+    `saturated: true` -> quality "low" on the response and on every spectral
+    band, and a lower-limit note on light-curve points that have a flux."""
     note = note_for(patch.target_info.name)
-    if note is None:
+    if note is None and not patch.saturated:
         return patch
-    return patch.model_copy(update={
-        "science_note": note.science_note,
-        "quality": note.quality,
-        "light_curve": [_with_note(p, note.light_curve_note) for p in patch.light_curve],
-    })
+    update = {
+        "science_note": note.science_note if note else None,
+        "quality": _quality(note, patch.saturated),
+        "light_curve": [_light_curve_point(p, patch.saturated, note) for p in patch.light_curve],
+    }
+    if patch.saturated:
+        update["spectrum_102_bands"] = _low(patch.spectrum_102_bands)
+    return patch.model_copy(update=update)
 
 
 def annotate_spectrum(spectrum: SpectrumResponse) -> SpectrumResponse:
-    note = note_for(spectrum.target_name) if spectrum.source == "target" else None
-    if note is None:
+    if spectrum.source != "target":  # anomaly spectra are about other sources
         return spectrum
-    return spectrum.model_copy(update={"science_note": note.science_note, "quality": note.quality})
+    note = note_for(spectrum.target_name)
+    if note is None and not spectrum.saturated:
+        return spectrum
+    update = {"science_note": note.science_note if note else None,
+              "quality": _quality(note, spectrum.saturated)}
+    if spectrum.saturated:
+        update["spectrum_102_bands"] = _low(spectrum.spectrum_102_bands)
+    return spectrum.model_copy(update=update)
 
 
 def annotate(model: BaseModel) -> BaseModel:
