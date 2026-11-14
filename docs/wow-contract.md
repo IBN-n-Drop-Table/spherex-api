@@ -1,0 +1,268 @@
+# Contrato de las funciones "wow" (rama `feat/wow-backend`)
+
+Para el frontend (`spherex-web`). Todo es **aditivo**: ningún campo existente cambia.
+Los ejemplos salen de la API real (proveedores de IA sin claves, Supabase sin configurar).
+Errores: el formato de siempre, `{"detail", "code", "errors"}`. Las URLs de imagen son absolutas.
+
+| Método | Ruta | Para qué |
+|---|---|---|
+| GET | `/api/v1/targets` | Subtítulos: distancia y textos de los 5 objetos (campos nuevos) |
+| POST | `/api/v1/chat` | Chat IA que explica lo que se ve |
+| GET | `/api/v1/chat/suggestions?target=` | 4 preguntas sugeridas |
+| POST | `/api/v1/game/sessions` | Empezar partida (3–5 rondas) |
+| POST | `/api/v1/game/guess` | Un intento por ronda |
+| POST | `/api/v1/game/finish` | Guardar la puntuación (calculada en el servidor) |
+| GET | `/api/v1/game/leaderboard` | Top 20 |
+
+---
+
+## 1. Subtítulos: `GET /api/v1/targets`
+
+Seis campos opcionales nuevos por objeto:
+
+| Campo | Tipo | Uso |
+|---|---|---|
+| `distance_ly` | number | Distancia en años luz, calculada del paralaje |
+| `distance_source` | string | Cita del paralaje (Gaia DR3 con `source_id`, o Kirkpatrick et al. 2021 para WISE 0855) |
+| `light_left_years_ago` | int | Años que tardó la luz, redondeado (2 cifras significativas si `distance_uncertain`) |
+| `distance_uncertain` | bool | `true` en R Draconis y RW Aurigae: decir "aproximadamente" |
+| `description_es` | string | 1–2 frases en lenguaje llano |
+| `story_es` | string | Frase lista para el subtítulo |
+
+```json
+{
+  "key": "BARNARDS_STAR",
+  "name": "Barnard's Star",
+  "ra_deg": 269.452075,
+  "dec_deg": 4.693391,
+  "fov_arcmin": 5.0,
+  "is_cached_golden_path": true,
+  "n_epochs": 3,
+  "sky_patch_query": "/api/v1/sky-patch?target=BARNARDS_STAR",
+  "distance_ly": 5.96,
+  "distance_source": "Gaia DR3 (Gaia Collaboration, Vallenari et al. 2023, A&A 674, A1), source_id 4472832130942575872: parallax 546.976 ± 0.040 mas",
+  "light_left_years_ago": 6,
+  "distance_uncertain": false,
+  "description_es": "Una estrella enana roja, pequeña y fría, de las más cercanas al Sol. Es la estrella que más rápido se desplaza en nuestro cielo.",
+  "story_es": "La luz que ves salió de esta estrella hace unos 6 años."
+}
+```
+
+Valores actuales: Barnard 6 años, Epsilon Indi B 12, WISE 0855 7, RW Aurigae ≈510 (incierto), R Draconis ≈2600 (incierto).
+
+---
+
+## 2. Chat IA
+
+### `POST /api/v1/chat`
+
+Entrada:
+
+```json
+{
+  "message": "¿Por qué se mueve?",
+  "tone": "easy",
+  "context": {
+    "target": "BARNARDS_STAR",
+    "band": "base",
+    "epochs": ["2025_M0", "2025_M7"],
+    "blink": true,
+    "difference": false,
+    "saturated": true,
+    "weak_signal": true,
+    "science_note": null,
+    "fallback_reason": null
+  },
+  "history": [
+    {"role": "user", "content": "¿Qué es esto?"},
+    {"role": "assistant", "content": "Es la estrella de Barnard..."}
+  ]
+}
+```
+
+| Campo | Límite |
+|---|---|
+| `message` | 1–500 caracteres (obligatorio) |
+| `tone` | `"easy"` (por defecto) o `"technical"` |
+| `context` | objeto libre, ≤ 4 KB en JSON. Las claves `science_note`, `quality: "low"`, `saturated: true`, `weak_signal: true` y `fallback_reason` se detectan **a cualquier profundidad** |
+| `history` | ≤ 20 turnos `user`/`assistant`; se usan los 6 últimos, cada uno cortado a 1000 caracteres |
+
+Si el contexto trae `target`, `target_key` o `target_name` de uno de los 5 objetos, el servidor añade al prompt sus datos fiables (distancia, descripción). Un campo de más o un límite superado devuelve 422.
+
+Salida (siempre 200, salvo 422 o 429):
+
+```json
+{
+  "answer": "Todas las estrellas se mueven por la galaxia, pero las lejanas parecen quietas. ...",
+  "provider": "canned",
+  "cached": false,
+  "fallback": true,
+  "disclaimer": "Asistente de IA: puede equivocarse. Los hallazgos requieren verificación humana.",
+  "cautions": [
+    "El desplazamiento esperado es menor que un píxel de SPHEREx (6,15″): la señal del movimiento es débil.",
+    "La estrella está saturada: es tan brillante que el detector se 'deslumbra' y su brillo no se puede medir bien."
+  ]
+}
+```
+
+- `provider`: `groq`, `deepseek` o `canned`. `fallback: true` significa respuesta predefinida, porque no hay claves, fallaron los dos proveedores o se alcanzó el tope diario.
+- `cached: true` indica que es la misma pregunta con el mismo contexto, tono e historial en la última hora.
+- `cautions` es un campo nuevo: muéstralas siempre junto a la respuesta, aunque el modelo ya las mencione.
+- `disclaimer` va fijo en la interfaz.
+- Error 429 por exceso de peticiones de una IP: lee la cabecera `Retry-After` (en segundos).
+
+```json
+{"detail": "Demasiadas peticiones de chat. Espera 37 s y vuelve a intentarlo.", "code": "http_429", "errors": null}
+```
+
+### `GET /api/v1/chat/suggestions?target=BARNARDS_STAR`
+
+`target` acepta la clave o el nombre (`Barnard's Star`, `wise-0855`…). Sin `target`, o con uno desconocido, devuelve la lista genérica y `"target": null`.
+
+```json
+{
+  "target": "BARNARDS_STAR",
+  "suggestions": [
+    "¿Por qué se mueve esta estrella?",
+    "¿Qué es el blink comparator?",
+    "¿A qué distancia está?",
+    "¿Qué es la resta de imágenes?"
+  ]
+}
+```
+
+---
+
+## 3. Juego "Encuentra lo que se mueve"
+
+Las rondas solo usan **Barnard's Star y Epsilon Indi B**, con pares consecutivos y el par primera-vs-última, y nunca el detector de anomalías. La respuesta correcta no sale del servidor hasta que se responde la ronda.
+
+**Coordenadas.** `x`, `y` son posiciones **continuas** en la imagen de la ronda: el origen está arriba a la izquierda, +y va hacia abajo y el píxel *i* ocupa [*i*, *i*+1). Las dos imágenes de una ronda comparten tamaño (`image_size`, 300×300). Si la imagen se pinta escalada, convierte con `x = clickX * image_size.width / anchoMostrado`.
+
+**Blink.** Alterna `image_b_url` (visita anterior, `epoch_b`) con `image_a_url` (visita posterior, `epoch_a`). Cada ronda es un recorte distinto, así que el objeto no está en el centro.
+
+**Pista.** `hint_image_url` solo aparece en rondas `weak_signal: true`. Es la resta (posterior − anterior) del mismo recorte: un objeto que se mueve deja una pareja rojo-azul. Si `weak_signal` es true, avisa: "el desplazamiento es menor que un píxel de SPHEREx".
+
+### `POST /api/v1/game/sessions` → 201
+
+El cuerpo es opcional: `{"rounds": 5}`, con un valor entre 3 y 5 (5 por defecto). Las rondas van de fácil a difícil: 1 `easy`, luego `medium` y al final 1 `hard`.
+
+```json
+{
+  "session_id": "36504625-c0bd-4381-bddd-aee678de7a61",
+  "expires_at": "2026-11-14T22:47:51.042642Z",
+  "rounds": [
+    {
+      "round_id": "2219bbf14602",
+      "target_id": "BARNARDS_STAR",
+      "target_name": "Barnard's Star",
+      "kind": "first_vs_last",
+      "epoch_a": "2025_M12",
+      "epoch_b": "2025_M0",
+      "date_a": "2026-08-21T15:37:09Z",
+      "date_b": "2025-08-27T09:09:36Z",
+      "image_a_url": "https://spherex-api.onrender.com/static/game/4aead6ab2eb812954f6599cf.png",
+      "image_b_url": "https://spherex-api.onrender.com/static/game/dba1657f2c1d8b024cb91f93.png",
+      "hint_image_url": null,
+      "image_size": {"width": 300, "height": 300},
+      "weak_signal": false,
+      "difficulty": "easy",
+      "delta_t_days": 359.27,
+      "expected_shift_arcsec": 10.22
+    },
+    {
+      "round_id": "df8db0bbf9ce",
+      "target_id": "EPSILON_INDI_B",
+      "target_name": "Epsilon Indi B",
+      "kind": "consecutive",
+      "epoch_a": "2025_M5",
+      "epoch_b": "2025_M0",
+      "date_a": "2025-10-06T07:59:24Z",
+      "date_b": "2025-04-30T02:01:13Z",
+      "image_a_url": "https://spherex-api.onrender.com/static/game/55ae688f55199b66d7da7afe.png",
+      "image_b_url": "https://spherex-api.onrender.com/static/game/0044c3ebcb46aedc5447dbb5.png",
+      "hint_image_url": "https://spherex-api.onrender.com/static/game/553b14f78fb9a223b92dc9dc.png",
+      "image_size": {"width": 300, "height": 300},
+      "weak_signal": true,
+      "difficulty": "hard",
+      "delta_t_days": 159.25,
+      "expected_shift_arcsec": 2.04
+    }
+  ],
+  "scoring": "Fallo (más de 20 píxeles del camino del objeto): 0 puntos. Acierto: 500 puntos, más hasta 300 por precisión y hasta 200 por rapidez (si respondes en menos de 30 s). Máximo 1000 por ronda."
+}
+```
+
+La sesión caduca a los 15 minutos sin actividad; cada intento renueva ese plazo.
+
+### `POST /api/v1/game/guess` → 200
+
+```json
+{"session_id": "36504625-c0bd-4381-bddd-aee678de7a61", "round_id": "2219bbf14602", "x": 198.6, "y": 51.6, "time_ms": 6400}
+```
+
+```json
+{
+  "hit": true,
+  "distance_px": 3.2,
+  "score": 910,
+  "answer": {"x": 194.8, "y": 59.8},
+  "answer_path": [{"x": 194.0, "y": 70.0}, {"x": 195.6, "y": 49.6}],
+  "hit_radius_px": 20.0,
+  "explanation_es": "¡Lo encontraste! Barnard's Star se desplazó unos 10,2″ en 359 días (20 píxeles en esta imagen), según su movimiento propio medido por Gaia DR3; su posición en estas imágenes de SPHEREx coincide con esa predicción."
+}
+```
+
+- `answer` es el punto medio del camino del objeto.
+- `answer_path` es un campo nuevo con la posición en `epoch_b` y luego en `epoch_a`. Sirve para dibujar la flecha.
+- `distance_px` es la distancia del intento a ese camino.
+
+**Puntuación** (0–1000 por ronda, calculada en el servidor):
+- Fallo, con `d` > 20 px: 0 puntos.
+- Acierto: `500 + 300·(1 − d/20) + 200·max(0, 1 − t/30 s)`.
+
+**Errores:**
+
+| Código | Causa |
+|---|---|
+| 404 | Sesión o ronda desconocida |
+| 409 | Segundo intento en la misma ronda, o partida ya terminada |
+| 410 | Sesión caducada |
+| 422 | `x`/`y` fuera de la imagen, o `time_ms` fuera de 0–600 000 |
+| 429 | Demasiados intentos; lee `Retry-After` |
+
+### `POST /api/v1/game/finish` → 200
+
+```json
+{"session_id": "36504625-c0bd-4381-bddd-aee678de7a61", "nickname": "Tombaugh_30"}
+```
+
+```json
+{
+  "session_id": "36504625-c0bd-4381-bddd-aee678de7a61",
+  "nickname": "Tombaugh_30",
+  "score": 910,
+  "hits": 1,
+  "rounds_played": 1,
+  "rounds_total": 3,
+  "stored_in": "memory"
+}
+```
+
+- `score` es la suma de las rondas jugadas, recalculada en el servidor. Si el cliente envía un `score`, la petición se rechaza con 422.
+- Alias: 3–16 caracteres, solo letras (con tildes y ñ), dígitos, `_` y `-`. Cualquier otro devuelve 422.
+- 409 si no se jugó ninguna ronda o si se intenta guardar dos veces.
+- Las rondas sin jugar cuentan 0.
+
+### `GET /api/v1/game/leaderboard` → 200
+
+```json
+{
+  "entries": [
+    {"nickname": "Tombaugh_30", "score": 910, "hits": 1, "rounds_played": 1, "rounds_total": 3, "created_at": "2026-11-14T22:32:51.050723Z"}
+  ],
+  "backend": "memory"
+}
+```
+
+Muestra el top 20 por puntuación; en caso de empate gana la más antigua. Con `backend: "memory"` la clasificación se pierde al reiniciar el servidor.
