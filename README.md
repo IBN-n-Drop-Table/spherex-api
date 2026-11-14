@@ -208,8 +208,6 @@ curl -X POST localhost:8000/api/v1/reports/<id>/verify
 
 ### Storage: Supabase or in-memory fallback
 
-`GET /health` shows the store in use (`"reports_backend": "supabase"` or `"memory"`). If the variables are unset, the table is missing or Supabase can't be reached, the API logs a warning and uses an in-memory store that starts with 2 sample discoveries (WISE 0855 and Barnard's Star). If Supabase fails during a demo, the API switches to memory and stays there until restart, so the feed doesn't jump between two stores. Reports kept in memory are lost on restart.
-
 `GET /health` shows the store in use (`"reports_backend": "supabase"` or `"memory"`).
 If the variables are unset, the table is missing or Supabase can't be reached, the API logs a warning and uses an in-memory store. That store starts **empty**. With `REPORTS_DEMO_SEED=1` it starts with 2 demo examples (WISE 0855 and Barnard's Star) by `ejemplo_demo`, flagged `is_example: true` and prefixed `[EJEMPLO]`: label them in the UI, they are not real citizen reports. Supabase rows always have `is_example: false`.
 If Supabase fails during the demo, the API switches to memory and stays there until restart, so the feed doesn't jump between two stores. Reports kept in memory are lost on restart.
@@ -239,6 +237,7 @@ Copy `.env.example` to `.env`. Every option can be overridden with an environmen
 | `JOB_RETRY_AFTER_MS` | 1500 | Suggested polling interval |
 | `CUTOUT_SECONDS_ESTIMATE` | 12.0 | Seconds per cutout, used only for the displayed ETA |
 | `LIVE_WARMUP` | 1 | `0` disables pre-loading the science stack at startup (saves ~100 MB of RAM) |
+| `REPORTS_DEMO_SEED` | - | `1`: the in-memory feed starts with 2 demo examples flagged `is_example: true` |
 
 To run the API reading the `.env`:
 
