@@ -4,3 +4,7 @@ pydantic
 # Citizen reports storage. Optional at runtime: without it (or without
 # SUPABASE_URL/SUPABASE_KEY) reports fall back to an in-memory store.
 supabase>=2.0
+# AI chat providers (Groq, DeepSeek): async HTTP client.
+httpx>=0.27
+# Game crops (app/services/game.py).
+pillow>=10.0

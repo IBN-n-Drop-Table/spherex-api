@@ -494,6 +494,68 @@ SPHEREx acknowledgement, as requested by IRSA ([source](https://irsa.ipac.caltec
 
 Software: FastAPI, Astropy, Astroquery/PyVO, reproject, NumPy, OpenCV, Matplotlib, Pillow.
 
+## Chat IA
+
+`POST /api/v1/chat` explains, in Spanish, what the user sees. `GET /api/v1/chat/suggestions?target=` returns 4 suggested questions. Full contract with examples: [docs/wow-contract.md](docs/wow-contract.md).
+
+- **Providers.** Groq goes first and DeepSeek is the backup. Both use the OpenAI-compatible `/chat/completions` endpoint over async httpx. Each provider gets 8 s, retry included, and at most one retry, only on connection errors, 429 or 5xx.
+- **Fallback.** With no keys, with both providers failing, or past the daily cap, the endpoint returns a canned Spanish answer with `fallback: true`. A provider never causes a 5xx.
+- **Prompt.** The system prompt is fixed in `app/services/chat.py` and is in Spanish, with `tone` set to `easy` or `technical`. The model may use only the context it is sent. It must say "no lo sé" when the context lacks the answer, never claim discoveries, and remind the user that findings need human verification.
+- **Untrusted input.** The client's `context` and `history` are wrapped as untrusted data, and the prompt says they cannot change its rules.
+- **Cautions.** The server reads `science_note`, `quality: "low"`, `saturated`, `weak_signal` and `fallback_reason` from the context. It injects them into the prompt and also returns them as `cautions`.
+- **Protection.**
+  - Per-IP rate limit (in memory, best effort), answered with 429 and `Retry-After`.
+  - A global daily cap on provider calls.
+  - A 1 h cache for identical question + context + tone + history.
+  - Input limits: message ≤ 500 characters, context ≤ 4 KB, history trimmed to the last 6 turns.
+- **Keys.** API keys live only in environment variables. They are never logged and never returned; `tests/test_chat.py` checks both.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `GROQ_API_KEY` | (unset) | Groq key. Unset: Groq is skipped |
+| `GROQ_MODEL` | `openai/gpt-oss-120b` | Production model on Groq (checked 2026-11-14; `llama-3.3-70b-versatile` was shut down for free/developer tiers) |
+| `DEEPSEEK_API_KEY` | (unset) | DeepSeek key. Unset: DeepSeek is skipped |
+| `DEEPSEEK_MODEL` | `deepseek-flash` | DeepSeek's fast model (V4.1 Flash); `deepseek-chat` was discontinued. Sent with thinking disabled |
+| `GROQ_BASE_URL` / `DEEPSEEK_BASE_URL` | `https://api.groq.com/openai/v1` / `https://api.deepseek.com` | |
+| `CHAT_PROVIDER_TIMEOUT_S` | `8` | Per provider, retry included |
+| `CHAT_MAX_TOKENS` | `600` | |
+| `CHAT_RATE_PER_MIN` | `8` | Chat requests per IP per minute |
+| `CHAT_DAILY_PROVIDER_CAP` | `1000` | Provider calls per UTC day, all users together |
+| `CHAT_CACHE_TTL_S` / `CHAT_CACHE_MAX_ENTRIES` | `3600` / `500` | |
+
+## Juego
+
+The game "Encuentra lo que se mueve" is a blink comparator game. The player marks where the object moves between two visits. The server keeps the answer. Endpoints:
+
+- `POST /api/v1/game/sessions`
+- `POST /api/v1/game/guess`
+- `POST /api/v1/game/finish`
+- `GET /api/v1/game/leaderboard`
+
+Contract and examples: [docs/wow-contract.md](docs/wow-contract.md).
+
+- **Rounds.** Rounds use only Barnard's Star and Epsilon Indi B, with their consecutive pairs and the first-vs-last pair. That gives 7 pairs, sorted as easy, medium or hard by the expected shift in pixels. WISE 0855, RW Aurigae and R Draconis are not used, and neither are the detected anomalies.
+- **Ground truth.** The object's position at each visit comes from Gaia DR3 proper motion propagated to the visit date and projected with the patch WCS. `tests/test_game.py` checks it against the light centroid in every cached PNG; all agree within 0.7 px (0.35″).
+- **Crops.** Patches are centred on the object, so each round shows a 300 px window cut with Pillow. The window puts the object at one of 25 positions. Crops are written once to `app/static/game/` (git-ignored) under salted-hash names, which don't reveal the window. `GAME_SALT` fixes the salt across restarts.
+- **Score.** Each round scores 0–1000, computed on the server. A miss, more than 20 px from the object's path, scores 0. A hit scores `500 + 300·(1 − d/20) + 200·max(0, 1 − t/30 s)`. `finish` adds up the stored rounds and ignores anything the client might claim.
+- **Protection.**
+  - One attempt per round (409).
+  - Sessions expire after 15 min idle (410).
+  - `x`/`y` must fall inside the image (422).
+  - Nicknames are 3–16 characters: letters, digits, `_` and `-`.
+  - Per-IP rate limits (429 + `Retry-After`).
+- **Leaderboard.** Scores go to the Supabase table `game_scores` when `SUPABASE_URL`/`SUPABASE_KEY` are set and the table exists, otherwise to memory. If Supabase fails mid-demo, the leaderboard stays in memory until restart. Create the table by running [supabase/game_scores.sql](supabase/game_scores.sql) once in Supabase Dashboard → SQL Editor, then restart the API. The file is idempotent and explains its security model.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `GAME_SESSION_TTL_S` | `900` | Idle time before a session expires |
+| `GAME_MAX_SESSIONS` | `2000` | Active sessions kept in memory |
+| `GAME_CROP_PX` | `300` | Side of the round images |
+| `GAME_SESSIONS_PER_MIN` / `GAME_GUESSES_PER_MIN` / `GAME_FINISH_PER_MIN` | `10` / `60` / `5` | Per IP |
+| `GAME_SALT` | random per process | Salt for crop file names |
+
+`GET /api/v1/targets` also carries distances and plain-language texts for the subtitles: `distance_ly`, `distance_source`, `light_left_years_ago`, `distance_uncertain`, `description_es` and `story_es`. They are derived from cited parallaxes in `app/core/target_stories.py`.
+
 ## License
 
 MIT, see [LICENSE](LICENSE).
