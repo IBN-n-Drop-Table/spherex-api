@@ -142,7 +142,7 @@ curl -X POST localhost:8000/api/v1/reports/<id>/verify
 Run [`scripts/setup_supabase.py`](#supabase-setup-one-command), or apply the migration by hand (SQL Editor, below). Then start the API with `--env-file .env`.
 
 `GET /health` shows the store in use (`"reports_backend": "supabase"` or `"memory"`).
-If the variables are unset, the table is missing or Supabase can't be reached, the API logs a warning and uses an in-memory store. That store starts with 2 sample discoveries (WISE 0855 and Barnard's Star).
+If the variables are unset, the table is missing or Supabase can't be reached, the API logs a warning and uses an in-memory store. That store starts **empty**. With `REPORTS_DEMO_SEED=1` it starts with 2 demo examples (WISE 0855 and Barnard's Star) by `ejemplo_demo`, flagged `is_example: true` and prefixed `[EJEMPLO]`: label them in the UI, they are not real citizen reports. Supabase rows always have `is_example: false`.
 If Supabase fails during the demo, the API switches to memory and stays there until restart, so the feed doesn't jump between two stores. Reports kept in memory are lost on restart.
 
 The database rules: anyone can read and submit reports. Clients cannot set `id`, `created_at` or `verifications_count`, and nobody can update or delete rows through the API. `verify_citizen_report()` increments the counter atomically.

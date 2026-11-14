@@ -65,3 +65,8 @@ class CitizenReport(CitizenReportCreate):
     id: UUID
     created_at: datetime
     verifications_count: int = Field(ge=1, description="Includes the discoverer's own report")
+    is_example: bool = Field(
+        default=False,
+        description="Added field. True for the demo examples the in-memory store loads with "
+        "REPORTS_DEMO_SEED=1: not a real citizen report, label it as such",
+    )
