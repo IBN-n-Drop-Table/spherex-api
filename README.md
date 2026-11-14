@@ -280,6 +280,30 @@ python scripts/generate_golden_path.py --all --workers 2
 python scripts/setup_supabase.py      # optional: mirror the PNGs to Supabase
 ```
 
+## Datos utilizados (Data used)
+
+Everything the API serves comes from public archives. Nothing is simulated: where a measurement is impossible (e.g. saturated stars), the response says so (`null` + `note`, `saturated`, `spectrum_message`).
+
+| Source | What we use it for | Access |
+|--------|--------------------|--------|
+| **SPHEREx** (NASA/JPL/Caltech), served by **IRSA/IPAC** | All images, difference images, spectra and light curves: Level 2 Spectral Images (MEF: IMAGE, FLAGS, VARIANCE, ZODI, WCS-WAVE), downloaded as server-side cutouts | IRSA SIA2 `https://irsa.ipac.caltech.edu/SIA`, collections **`spherex_dr1`** (DR1, DOI [10.26131/IRSA678](https://www.ipac.caltech.edu/doi/10.26131/IRSA678)) and **`spherex_qr3`** (QR3, DOI [10.26131/IRSA662](https://www.ipac.caltech.edu/doi/10.26131/IRSA662)); deep fields `spherex_dr1_deep` / `spherex_qr3_deep` only as a fallback. [SPHEREx at IRSA](https://irsa.ipac.caltech.edu/Missions/spherex.html), [Archive user guide](https://caltech-ipac.github.io/spherex-archive-documentation/), [tutorials](https://caltech-ipac.github.io/irsa-tutorials/spherex-intro/) |
+| **Gaia DR3** (ESA) | Reference positions and proper motions of Barnard's Star, Epsilon Indi B, RW Aurigae and R Draconis (`app/core/targets.py`), propagated to each SPHEREx exposure date | [Gaia archive](https://gea.esac.esa.int/archive/); Gaia Collaboration, Vallenari et al. 2023, A&A 674, A1 |
+| **WISE** (NASA) | Reference position of WISE 0855−0714 (from its WISE designation, epoch ~2010.4); its proper motion is from Luhman & Esplin (2016, AJ 152, 78) | [WISE at IRSA](https://irsa.ipac.caltech.edu/Missions/wise.html) |
+
+Gaia/WISE catalogue overlays in the viewer are drawn by the frontend (Aladin Lite), not by this API.
+
+SPHEREx acknowledgement, as requested by IRSA ([source](https://irsa.ipac.caltech.edu/Missions/spherex.html)):
+
+> This publication makes use of data products from the Spectro-Photometer for the History of the Universe, Epoch of Reionization and Ices Explorer (SPHEREx), which is a joint project of the Jet Propulsion Laboratory and the California Institute of Technology, and is funded by the National Aeronautics and Space Administration.
+
+Canonical SPHEREx papers listed by IRSA: Bock et al. (2026, mission), Akeson et al. (2026, pipeline), Crill et al. (2025, sky simulator), Korngut et al. (2026, instrument & calibration).
+
+Software: FastAPI, Astropy, Astroquery/PyVO, reproject, NumPy, OpenCV, Matplotlib, Pillow.
+
+## License
+
+MIT, see [LICENSE](LICENSE). (TODO: copyright holder name pending.)
+
 ## Adding a target
 
 Add a `Target(...)` to `app/core/targets.py`, then run the pipeline for it. The API serves every catalogue target that has a JSON file, and checks each file against the schema at startup.
