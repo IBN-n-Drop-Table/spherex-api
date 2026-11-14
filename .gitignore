@@ -221,6 +221,8 @@ __marimo__/
 
 # Live (out-of-cache) API job outputs
 app/static/live/
+# Game crops, generated at runtime (app/services/game.py)
+app/static/game/
 
 # SPHEREx downloads and temporary outputs (never committed; the Golden Path
 # is committed as PNG + JSON under app/static/golden_path/ and app/data/)

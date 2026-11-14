@@ -8,6 +8,7 @@ from app.core import errors
 from app.core.config import settings
 from app.routers import credits, epochs, jobs, reports, sky_patch, spectrum
 from app.routers import chat as chat_router  # wow features: own files
+from app.routers import game as game_router
 from app.services.golden_path import warm_cache
 from app.services.live import live_processing_available, warm_up_in_background
 from app.services.reports import get_report_service
@@ -57,6 +58,7 @@ for module in (sky_patch, spectrum, jobs, epochs, reports, credits):
     app.include_router(module.router, prefix=settings.api_v1_prefix)
 app.include_router(credits.router)  # also at /credits: data citation must be easy to find
 app.include_router(chat_router.router, prefix=settings.api_v1_prefix)
+app.include_router(game_router.router, prefix=settings.api_v1_prefix)
 
 # PNGs written by scripts/generate_golden_path.py (--storage local) and live jobs (static/live/<job_id>/)
 settings.static_dir.mkdir(parents=True, exist_ok=True)
