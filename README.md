@@ -98,8 +98,11 @@ IRSA gets **5 s** (`SIA_BUDGET_S`, retries included) to answer. On a timeout, 42
 
 ```json
 "fallback": true,
-"fallback_message": "Mostrando datos en caché debido a alta latencia en servidores de origen. ..."
+"fallback_message": "Mostrando datos en caché debido a alta latencia en servidores de origen. ...",
+"fallback_reason": "irsa_unavailable"
 ```
+
+`fallback_reason` is the machine-readable cause, on sky patches, spectra and `/epochs`: `irsa_unavailable` (IRSA timed out, throttled or answered 5xx), `live_processing_unavailable` (this server has no science stack), or `unknown`. It is `null` when `fallback` is false. Branch on it, show `fallback_message`.
 
 `target_info.name` says which cached object is shown. A failure caused by IRSA never produces a 500. A position IRSA answers for but SPHEREx hasn't covered twice yet ends as `status: failed` with a readable `error`.
 

@@ -1346,5 +1346,6 @@
   "spectrum_message": null,
   "band": "H2O",
   "fallback": false,
-  "fallback_message": null
+  "fallback_message": null,
+  "fallback_reason": null
 }

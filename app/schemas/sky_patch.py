@@ -26,6 +26,11 @@ ContaminationFlag = Annotated[str, StringConstraints(pattern=r"^[A-Z][A-Z0-9_]*$
 
 ImageFormat = Literal["png", "fits"]
 ChemicalBand = Literal["H2O", "CO2", "CO"]
+# Why cached data was served instead of a live answer (see app/services/fallback.py).
+FallbackReason = Literal["irsa_unavailable", "live_processing_unavailable", "unknown"]
+FALLBACK_REASON_DOC = ("Added field. Machine-readable cause when `fallback` is true: `irsa_unavailable` "
+                       "(IRSA timed out, throttled or failed), `live_processing_unavailable` (this server "
+                       "has no science stack). null when fallback is false")
 
 DETECTION_LABEL = "Detección Asistida por Software (BETA)"
 DETECTION_NOTICE = "Anomalía detectada por software: requiere verificación humana"
@@ -219,6 +224,7 @@ class SkyPatchResponse(_Strict):
         default=False, description="True when IRSA failed and this is cached data for another position"
     )
     fallback_message: str | None = None
+    fallback_reason: FallbackReason | None = Field(default=None, description=FALLBACK_REASON_DOC)
 
     @model_validator(mode="after")
     def _consistent(self) -> Self:

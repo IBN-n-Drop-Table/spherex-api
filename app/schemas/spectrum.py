@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import Field
 
-from app.schemas.sky_patch import Spectrum, _Strict
+from app.schemas.sky_patch import FALLBACK_REASON_DOC, FallbackReason, Spectrum, _Strict
 
 
 class SpectrumResponse(_Strict):
@@ -25,3 +25,4 @@ class SpectrumResponse(_Strict):
     spectrum_message: str | None = Field(default=None, description="Why the spectrum is empty or partial")
     fallback: bool = False
     fallback_message: str | None = None
+    fallback_reason: FallbackReason | None = Field(default=None, description=FALLBACK_REASON_DOC)
