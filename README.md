@@ -87,7 +87,7 @@ Every error, from every endpoint, has one shape:
 ```
 
 - `detail` is always a readable string. (Before 2026-11-14, FastAPI's own 422s put a list there.)
-- `code` is stable: `not_found` (404), `validation_error` (422), `service_unavailable` (503, with `Retry-After`), `method_not_allowed` (405), `internal_error` (500), or `http_<status>`.
+- `code` is stable: `not_found` (404), `job_not_found` (404, a job lost to a restart or expired; see [Jobs](#jobs-with-progress-when-coordinates-are-not-in-the-cache)), `validation_error` (422), `service_unavailable` (503, with `Retry-After`), `method_not_allowed` (405), `internal_error` (500), or `http_<status>`.
 - `errors` lists the field problems of a 422 validation error, and is `null` otherwise.
 
 ### Coordinates, field of view, band
@@ -143,6 +143,7 @@ curl localhost:8000/api/v1/jobs/<job_id>
 - **A cold job takes tens of seconds to a few minutes**: each IRSA cutout takes ~12 s (it always carries a ~4 MB PSF table), and live mode downloads 1 cutout per detector and visit (~18). Measured on 2026-11-14: 40-100 s for Barnard's Star. The messages say so.
 - The same query returns the same job. One job runs at a time; more than 8 queued -> **503** `Retry-After: 30`.
 - Jobs live in memory (1 h after finishing). A restart forgets them, which is why the service runs 1 uvicorn worker.
+- Polling a job that no longer exists (a restart, e.g. Render spinning the free instance down, or 1 h after it finished) answers **404** with `code: "job_not_found"` and `detail: "El análisis se perdió por un reinicio del servidor; vuelve a lanzarlo."`. Show the message and offer to POST the same query again.
 - The legacy `GET /sky-patch` / `GET /spectrum` 202 + `Location` flow still works.
 
 ### Offline-first fallback

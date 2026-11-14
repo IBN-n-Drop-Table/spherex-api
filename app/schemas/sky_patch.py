@@ -278,8 +278,8 @@ class ErrorResponse(BaseModel):
 
     detail: str = Field(description="Readable message, always a string")
     code: str = Field(
-        description="Stable code: not_found, validation_error, service_unavailable, internal_error, "
-        "or http_<status>",
+        description="Stable code: not_found, job_not_found, validation_error, service_unavailable, "
+        "internal_error, or http_<status>",
         examples=["not_found"],
     )
     errors: list[ErrorFieldProblem] | None = Field(
