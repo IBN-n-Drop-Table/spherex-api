@@ -1,9 +1,0 @@
-fastapi
-uvicorn[standard]
-astropy>=6
-astroquery>=0.4.8
-reproject
-numpy
-scipy
-pillow
-requests
