@@ -209,7 +209,7 @@ def test_global_cap_toward_simbad_reports_rate_limited():
     assert c.get(URL, params={"target": "BARNARDS_STAR"}).json()["source"] == "simbad"
     body = c.get(URL, params={"target": "WISE_0855"}).json()
     assert (body["fallback_reason"], body["source"]) == ("simbad_rate_limited", "none")
-    assert body["fallback_message"].startswith("SIMBAD is receiving too many requests")
+    assert body["fallback_message"].startswith("We are slowing down our queries to SIMBAD")
     assert len(t.calls) == 1
 
 

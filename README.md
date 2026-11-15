@@ -572,7 +572,7 @@ Contract and examples: [docs/wow-contract.md](docs/wow-contract.md).
 
 - **Query.** One synchronous TAP query (ADQL, JSON): `CONTAINS(POINT('ICRS', ra, dec), CIRCLE(...)) = 1` around the image centre, radius = half the image diagonal, with `pmra`, `pmdec` and the object type. The cone is widened for proper motion (Barnard's Star is ~6 arcmin from its J2000 position in 2026, more than the patch radius) and each row is kept only if its own proper motion can bring it into the image.
 - **Proper motion.** SIMBAD positions are J2000; each one is propagated to the visit date (`epoch_applied`) before projecting with the WCS of the PNG that `/sky-patch` serves. Without proper motion in SIMBAD the position is not moved and `proper_motion_applied` is `false`.
-- **Reliability.** 5 s towards SIMBAD. If it fails, the in-memory result (1 h TTL, even stale), then the precomputed file in `app/data/simbad/` (made by `scripts/generate_simbad_golden.py`), then an empty list, with `source`, `fallback_reason` and an English `fallback_message`. Per-IP limit (20/min) and a global cap of 3 queries/s towards SIMBAD.
+- **Reliability.** 5 s towards SIMBAD. If it fails, the in-memory result (1 h TTL, even stale), then the precomputed file in `app/data/simbad/` (made by `scripts/generate_simbad_golden.py`), then an empty list, with `source`, `fallback_reason` and an English `fallback_message`. Per-IP limit (20/min, 429 with `Retry-After`). Towards SIMBAD, a global token bucket (burst of 10, then 3 queries/s on average): when it is empty no request is sent, saved data is served first, and `fallback_reason: "simbad_rate_limited"` says that **this server** is pacing its queries (SIMBAD refused nothing). SIMBAD's own limit could not be read from its documentation, so 3/s is a cautious value, not a verified one.
 - **Tests** never use the network: SIMBAD is faked. The Golden Path files and the type list in `tests/simbad_otypes_known.txt` are real SIMBAD answers (via its Harvard mirror, 2026-11-15).
 
 | Variable | Default | Meaning |
@@ -580,7 +580,7 @@ Contract and examples: [docs/wow-contract.md](docs/wow-contract.md).
 | `SIMBAD_TAP_URL` | `https://simbad.cds.unistra.fr/simbad/sim-tap/sync` | Synchronous TAP resource. `render.yaml` sets the official Harvard mirror, `https://simbad.cfa.harvard.edu/simbad/sim-tap/sync` (see the note below) |
 | `SIMBAD_TIMEOUT_S` | `5` | Budget towards SIMBAD |
 | `SIMBAD_RATE_PER_MIN` | `20` | Per IP |
-| `SIMBAD_GLOBAL_QPS` | `3` | Global queries per second towards SIMBAD |
+| `SIMBAD_BURST` / `SIMBAD_RATE_PER_S` | `10` / `3` | Token bucket towards SIMBAD, all users: burst, then average queries per second (`SIMBAD_GLOBAL_QPS` is the old name of the rate) |
 | `SIMBAD_CACHE_TTL_S` / `SIMBAD_CACHE_MAX_ENTRIES` | `3600` / `500` | In-memory cache |
 | `SIMBAD_FETCH_LIMIT` | `200` | Rows requested per query |
 

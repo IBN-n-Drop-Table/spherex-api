@@ -50,6 +50,46 @@ class SlidingWindowLimiter:
             del self._hits[key]
 
 
+class TokenBucket:
+    """Token bucket: up to `burst` calls at once, then `rate_per_s` calls per second on average.
+
+    Same `check(key)` contract as SlidingWindowLimiter (None if allowed, else the seconds to wait),
+    but one shared bucket: the key is ignored. Used for the global pace of queries to SIMBAD.
+    """
+
+    def __init__(self, burst: int, rate_per_s: float, clock=time.monotonic) -> None:
+        if burst < 0 or rate_per_s < 0:
+            raise ValueError("burst and rate_per_s must be >= 0")
+        self.burst = burst
+        self.rate_per_s = rate_per_s
+        self._clock = clock
+        self._tokens = float(burst)
+        self._last = clock()
+        self._lock = threading.Lock()
+
+    def _refill(self, now: float) -> None:
+        self._tokens = min(float(self.burst), self._tokens + (now - self._last) * self.rate_per_s)
+        self._last = now
+
+    def check(self, key: str = "") -> float | None:
+        with self._lock:
+            now = self._clock()
+            self._refill(now)
+            if self._tokens >= 1.0:
+                self._tokens -= 1.0
+                return None
+            if self.rate_per_s <= 0:
+                return float("inf")
+            return (1.0 - self._tokens) / self.rate_per_s
+
+    @property
+    def tokens(self) -> float:
+        """Tokens available now (for tests and logs)."""
+        with self._lock:
+            self._refill(self._clock())
+            return self._tokens
+
+
 def client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 

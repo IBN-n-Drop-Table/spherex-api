@@ -581,7 +581,7 @@ Elegir una al azar y cambiarla cada 4 a 5 s. Como el endpoint puede estar durmie
 | `SIMBAD_TAP_URL` | `https://simbad.cds.unistra.fr/simbad/sim-tap/sync` | Servicio TAP síncrono. Con CDS caído: `https://simbad.cfa.harvard.edu/simbad/sim-tap/sync` |
 | `SIMBAD_TIMEOUT_S` | `5` | Segundos hacia SIMBAD antes de servir caché o precalculado |
 | `SIMBAD_RATE_PER_MIN` | `20` | Peticiones a `/catalog-objects` por IP y minuto |
-| `SIMBAD_GLOBAL_QPS` | `3` | Tope global de consultas por segundo hacia SIMBAD (todos los usuarios) |
+| `SIMBAD_BURST` / `SIMBAD_RATE_PER_S` | `10` / `3` | Cubo de fichas hacia SIMBAD, todos los usuarios: ráfaga y ritmo medio por segundo (`SIMBAD_GLOBAL_QPS` es el nombre antiguo del ritmo) |
 | `SIMBAD_CACHE_TTL_S` | `3600` | Vida de la caché en memoria |
 | `SIMBAD_CACHE_MAX_ENTRIES` | `500` | Entradas de esa caché |
 | `SIMBAD_FETCH_LIMIT` | `200` | Filas pedidas a SIMBAD por consulta |

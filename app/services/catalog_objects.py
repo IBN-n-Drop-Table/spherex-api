@@ -100,12 +100,14 @@ FALLBACK_TEXT = {
     ("simbad_unavailable", "precomputed"): "SIMBAD did not answer in time. Showing a precomputed list for this target.",
     ("simbad_unavailable", "none"): "SIMBAD did not answer in time and no saved result exists for this field, "
                                     "so no catalogued objects are shown.",
-    ("simbad_rate_limited", "cache"): "SIMBAD is receiving too many requests right now. Showing the last result "
-                                      "saved for this field.",
-    ("simbad_rate_limited", "precomputed"): "SIMBAD is receiving too many requests right now. Showing a "
+    # simbad_rate_limited = THIS server is pacing its own queries to SIMBAD (SIMBAD did not refuse anything).
+    ("simbad_rate_limited", "cache"): "We are slowing down our queries to SIMBAD for a moment. Showing the last "
+                                      "result saved for this field.",
+    ("simbad_rate_limited", "precomputed"): "We are slowing down our queries to SIMBAD for a moment. Showing a "
                                             "precomputed list for this target.",
-    ("simbad_rate_limited", "none"): "SIMBAD is receiving too many requests right now and no saved result "
-                                     "exists for this field, so no catalogued objects are shown. Try again shortly.",
+    ("simbad_rate_limited", "none"): "We are slowing down our queries to SIMBAD for a moment and no saved result "
+                                     "exists for this field yet, so no catalogued objects are shown. Try again in "
+                                     "a few seconds.",
 }
 
 

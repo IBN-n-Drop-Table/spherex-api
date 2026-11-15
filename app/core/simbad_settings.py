@@ -25,8 +25,13 @@ class SimbadSettings:
     timeout_s: float = field(default_factory=lambda: _float("SIMBAD_TIMEOUT_S", 5.0))
     # Per client IP, sliding window of 60 s (cached answers count too).
     rate_per_min: int = field(default_factory=lambda: _int("SIMBAD_RATE_PER_MIN", 20))
-    # Global cap of queries to SIMBAD per second, all users: SIMBAD blocks IPs that go over about 5-6/s.
-    global_qps: int = field(default_factory=lambda: _int("SIMBAD_GLOBAL_QPS", 3))
+    # Global pace of queries to SIMBAD, all users together: a token bucket. Up to SIMBAD_BURST queries at
+    # once, then SIMBAD_RATE_PER_S on average. SIMBAD's own limit could not be read from its documentation
+    # (2026-11-15: guide pages answered 403/404), so 3/s is a cautious value, NOT checked against SIMBAD.
+    # SIMBAD_GLOBAL_QPS, the old name of the rate, is still read if SIMBAD_RATE_PER_S is unset.
+    burst: int = field(default_factory=lambda: _int("SIMBAD_BURST", 10))
+    rate_per_s: float = field(default_factory=lambda: _float(
+        "SIMBAD_RATE_PER_S", float(os.getenv("SIMBAD_GLOBAL_QPS") or 3.0)))
     cache_ttl_s: int = field(default_factory=lambda: _int("SIMBAD_CACHE_TTL_S", 3600))
     cache_max_entries: int = field(default_factory=lambda: _int("SIMBAD_CACHE_MAX_ENTRIES", 500))
     # Rows requested from SIMBAD per query (more than max_n: the circle is bigger than the square image).
