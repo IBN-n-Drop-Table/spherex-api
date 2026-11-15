@@ -16,9 +16,17 @@ cut from the 600 px images with Pillow, placed so the object lands at one of
 difference image for the hint). File names are salted hashes: they don't reveal
 the window.
 
+WISE vs SPHEREx pool. When app/data/game_pool/manifest.json exists (scripts/build_game_pool.py), sessions
+draw their rounds from it instead: one nearby high proper-motion star per round, WISE (2010) vs
+the SPHEREx DR1 HiPS (2025-26). Its PNGs are ready-made 300 px windows under static/game_pool/
+and its answer is Gaia DR3 propagated to each image date, like the Golden Path rounds. If the
+pool is missing, broken or too small, the session falls back to the Golden Path
+(GameSession.fallback = true).
+
 Score of a round (0-1000), all computed here:
-    miss (distance to the object's path > HIT_RADIUS_PX): 0
-    hit: 500 + 300 * (1 - d / HIT_RADIUS_PX) + 200 * max(0, 1 - t / 30 s)
+    miss (distance to the object's path > the round's hit radius R): 0
+    hit: 500 + 300 * (1 - d / R) + 200 * max(0, 1 - t / 30 s)
+R is HIT_RADIUS_PX for Golden Path rounds and POOL_HIT_RADIUS_ARCSEC in pixels for pool rounds.
 where d is the distance in pixels from the guess to the segment joining the
 object's two positions, and t the time the player took (`time_ms`, reported by
 the client and clamped; worth at most 200 points).
@@ -26,6 +34,7 @@ the client and clamped; worth at most 200 points).
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import os
@@ -33,6 +42,7 @@ import random
 import secrets
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
@@ -45,20 +55,23 @@ from app.core.patch_geometry import SPHEREX_PIXEL_ARCSEC
 from app.core.targets import CATALOG, Target
 from app.core.urls import INTERNAL_BASE, to_relative
 from app.core.wow_settings import GameSettings
-from app.schemas.game import GameRound, GameSession, GuessResult, ImageSize, Point
+from app.schemas.game import GameRound, GameSession, GuessResult, ImageSize, Point, Region
 from app.services.golden_path import cached_target
 
 logger = logging.getLogger(__name__)
 
 GAME_TARGETS = ("BARNARDS_STAR", "EPSILON_INDI_B")
 HIT_RADIUS_PX = 20.0  # 10″ at 0.5″/px: about the radius of the star's blob in the PNG
+POOL_HIT_RADIUS_ARCSEC = 15.0  # ~1.2 pixels of the 12.9" SPHEREx DR1 HiPS
+POOL_MIN_HIT_RADIUS_PX = 12.0
 SPEED_WINDOW_MS = 30_000
 GRID_FRACTIONS = (0.2, 0.35, 0.5, 0.65, 0.8)
 J2000 = datetime(2000, 1, 1, 12, tzinfo=UTC)
 
 SCORING_ES = (  # user-facing: English
-    "Miss (more than 20 pixels from the object's path): 0 points. Hit: 500 points, plus up to 300 "
-    "for precision and up to 200 for speed (if you answer in under 30 s). Up to 1000 per round."
+    "Miss (farther from the object's path than the round's hit radius, 20 pixels in SPHEREx-only "
+    "rounds): 0 points. Hit: 500 points, plus up to 300 for precision and up to 200 for speed (if "
+    "you answer in under 30 s). Up to 1000 per round."
 )
 
 
@@ -102,10 +115,10 @@ def distance_to_segment(p: tuple[float, float], a: tuple[float, float], b: tuple
     return math.hypot(px - (ax + t * vx), py - (ay + t * vy))
 
 
-def round_score(distance_px: float, time_ms: int) -> int:
-    if distance_px > HIT_RADIUS_PX:
+def round_score(distance_px: float, time_ms: int, radius_px: float = HIT_RADIUS_PX) -> int:
+    if distance_px > radius_px:
         return 0
-    precision = 1.0 - distance_px / HIT_RADIUS_PX
+    precision = 1.0 - distance_px / radius_px
     speed = max(0.0, 1.0 - min(time_ms, SPEED_WINDOW_MS) / SPEED_WINDOW_MS)
     return round(500 + 300 * precision + 200 * speed)
 
@@ -195,6 +208,108 @@ def game_pairs() -> tuple[PairSpec, ...]:
 
 
 # --------------------------------------------------------------------------- #
+# WISE vs SPHEREx pool (scripts/build_game_pool.py)
+# --------------------------------------------------------------------------- #
+
+POOL_MANIFEST = settings.data_dir / "game_pool" / "manifest.json"
+POOL_URL_PATH = "/static/game_pool/"
+
+
+def _display_name(name: str) -> str:
+    """SIMBAD main_id without its catalogue prefix ("NAME Teegarden's Star", "V* SZ UMa")."""
+    name = " ".join(name.split())
+    for prefix in ("NAME ", "V* ", "* "):
+        if name.startswith(prefix):
+            return name[len(prefix):]
+    return name
+
+
+def _when(text: str) -> datetime:
+    return datetime.fromisoformat(text.replace("Z", "+00:00"))
+
+
+@dataclass(frozen=True)
+class PoolSpec:
+    key: str
+    target_id: str
+    name: str
+    difficulty: str
+    url_a: str  # relative URL of the later image (SPHEREx)
+    url_b: str  # earlier image (WISE)
+    telescope_a: str
+    telescope_b: str
+    date_a: datetime
+    date_b: datetime
+    date_a_range: tuple[datetime, datetime]
+    date_b_range: tuple[datetime, datetime]
+    pos_a: tuple[float, float]  # continuous PNG position, later image
+    pos_b: tuple[float, float]
+    size: int
+    pixel_scale: float
+    spherex_pixel_scale: float
+    delta_t_days: float
+    expected_shift_arcsec: float
+    region: tuple[float, float, float]  # ra, dec (deg), fov (arcmin)
+
+    @property
+    def shift_px(self) -> float:
+        return math.dist(self.pos_a, self.pos_b)
+
+    @property
+    def hit_radius_px(self) -> float:
+        return round(max(POOL_MIN_HIT_RADIUS_PX, POOL_HIT_RADIUS_ARCSEC / self.pixel_scale), 1)
+
+
+def load_pool(manifest: Path = POOL_MANIFEST, static_dir: Path | None = None) -> tuple[PoolSpec, ...]:
+    """Rounds of the pool whose two PNGs exist. Missing or unreadable manifest: an empty pool
+    (the session then falls back to the Golden Path)."""
+    static_dir = static_dir or settings.static_dir / "game_pool"
+    try:
+        data = json.loads(manifest.read_text())
+        rounds = data["rounds"]
+    except FileNotFoundError:
+        logger.warning("Game: no round pool at %s; sessions use the Golden Path.", manifest)
+        return ()
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        logger.warning("Game: round pool %s is unreadable (%s); sessions use the Golden Path.", manifest, exc)
+        return ()
+    out = []
+    for r in rounds:
+        try:
+            if not ((static_dir / r["image_a"]).is_file() and (static_dir / r["image_b"]).is_file()):
+                raise FileNotFoundError("missing PNG")
+            region = r["region"]
+            out.append(PoolSpec(
+                key=r["round_key"], target_id=f"GAIA_DR3_{r['gaia_source_id']}", name=_display_name(r["name"]),
+                difficulty=r["difficulty"],
+                url_a=POOL_URL_PATH + r["image_a"], url_b=POOL_URL_PATH + r["image_b"],
+                telescope_a=r["telescope_a"], telescope_b=r["telescope_b"],
+                date_a=_when(r["date_a"]), date_b=_when(r["date_b"]),
+                date_a_range=tuple(_when(t) for t in r["date_a_range"]),
+                date_b_range=tuple(_when(t) for t in r["date_b_range"]),
+                pos_a=tuple(r["pos_a"]), pos_b=tuple(r["pos_b"]), size=int(r["image_size"]),
+                pixel_scale=float(r["pixel_scale_arcsec"]),
+                spherex_pixel_scale=float(r["spherex_pixel_scale_arcsec"]),
+                delta_t_days=float(r["delta_t_days"]), expected_shift_arcsec=float(r["expected_shift_arcsec"]),
+                region=(float(region["ra_deg"]), float(region["dec_deg"]), float(region["fov_arcmin"])),
+            ))
+        except (KeyError, TypeError, ValueError, FileNotFoundError) as exc:
+            logger.warning("Game: pool round %s skipped (%s).", r.get("round_key", "?"), exc)
+    logger.info("Game: %d pool rounds loaded from %s.", len(out), manifest)
+    return tuple(out)
+
+
+def explanation_pool(spec: PoolSpec, hit: bool, distance_px: float) -> str:
+    lead = "You found it! " if hit else f"Not this time: the star was {round(distance_px)} pixels from your mark. "
+    years = (spec.date_a_range[0].year, spec.date_a_range[1].year)
+    when = str(years[0]) if years[0] == years[1] else f"{years[0]}-{years[1]}"
+    return (f"{lead}{spec.name} moved about {_number(spec.expected_shift_arcsec, 0)}″ between WISE (2010) "
+            f"and SPHEREx ({when}): {round(spec.shift_px)} pixels in this image, as its proper motion "
+            "measured by Gaia DR3 predicts. The images come from two telescopes and two wavelengths "
+            "(WISE at 3.4 µm, SPHEREx at 1.1-2.4 µm), so other stars can look slightly different.")
+
+
+# --------------------------------------------------------------------------- #
 # Crops
 # --------------------------------------------------------------------------- #
 
@@ -269,9 +384,11 @@ class NothingPlayed(Exception):
 @dataclass
 class RoundState:
     public: GameRound
-    pair: PairSpec
+    pair: PairSpec | PoolSpec
     pos_a: tuple[float, float]  # in crop coordinates
     pos_b: tuple[float, float]
+    explain: Callable[[bool, float], str]
+    hit_radius_px: float = HIT_RADIUS_PX
     result: GuessResult | None = None
 
 
@@ -314,8 +431,12 @@ def explanation(pair: PairSpec, hit: bool, distance_px: float) -> str:
 
 class GameService:
     def __init__(self, pairs: tuple[PairSpec, ...], cfg: GameSettings, crops: CropStore,
-                 clock=time.monotonic, rng: random.Random | None = None) -> None:
+                 clock=time.monotonic, rng: random.Random | None = None,
+                 pool: tuple[PoolSpec, ...] | None = None) -> None:
+        """`pool`: None = no pool configured (Golden Path only, `fallback` null); an empty or too
+        small tuple = the pool failed to load (Golden Path, `fallback` true)."""
         self.pairs, self.cfg, self.crops = pairs, cfg, crops
+        self.pool = pool
         self._clock = clock
         self._rng = rng or random.SystemRandom()
         self._sessions: dict[UUID, Session] = {}
@@ -323,8 +444,10 @@ class GameService:
 
     # -- creation ------------------------------------------------------------
 
-    def _pick(self, n: int) -> list[PairSpec]:
-        by = {d: [p for p in self.pairs if p.difficulty == d] for d in ("easy", "medium", "hard")}
+    def _pick(self, n: int, items=None) -> list:
+        """n distinct items: one easy, then medium, one hard, filled from what exists."""
+        items = self.pairs if items is None else items
+        by = {d: [p for p in items if p.difficulty == d] for d in ("easy", "medium", "hard")}
         for group in by.values():
             self._rng.shuffle(group)
         chosen = by["easy"][:1] + by["medium"][: max(n - 2, 1)] + by["hard"][:1]
@@ -350,15 +473,48 @@ class GameService:
             image_size=ImageSize(width=self.crops.crop_px, height=self.crops.crop_px),
             weak_signal=pair.weak_signal, difficulty=pair.difficulty,
             delta_t_days=pair.delta_t_days, expected_shift_arcsec=pair.expected_shift_arcsec,
+            source="golden_path", telescope_a="SPHEREx", telescope_b="SPHEREx",
+            pixel_scale_arcsec=round(pair.pixel_arcsec, 4), hit_radius_px=HIT_RADIUS_PX,
         )
         return RoundState(public=public, pair=pair,
                           pos_a=(pair.pos_a[0] - ox, pair.pos_a[1] - oy),
-                          pos_b=(pair.pos_b[0] - ox, pair.pos_b[1] - oy))
+                          pos_b=(pair.pos_b[0] - ox, pair.pos_b[1] - oy),
+                          explain=lambda hit, d: explanation(pair, hit, d))
+
+    def _make_pool_round(self, spec: PoolSpec) -> RoundState:
+        public = GameRound(
+            round_id=uuid4().hex[:12],
+            target_id=spec.target_id, target_name=spec.name, kind="first_vs_last",
+            epoch_a="SPHEREx_DR1", epoch_b="WISE_2010", date_a=spec.date_a, date_b=spec.date_b,
+            image_a_url=INTERNAL_BASE + spec.url_a, image_b_url=INTERNAL_BASE + spec.url_b,
+            hint_image_url=None, image_size=ImageSize(width=spec.size, height=spec.size),
+            weak_signal=False, difficulty=spec.difficulty,
+            delta_t_days=spec.delta_t_days, expected_shift_arcsec=spec.expected_shift_arcsec,
+            source="wise_vs_spherex", telescope_a=spec.telescope_a, telescope_b=spec.telescope_b,
+            date_a_range=list(spec.date_a_range), date_b_range=list(spec.date_b_range),
+            region=Region(ra_deg=spec.region[0], dec_deg=spec.region[1], fov_arcmin=spec.region[2]),
+            pixel_scale_arcsec=spec.pixel_scale, spherex_pixel_scale_arcsec=spec.spherex_pixel_scale,
+            hit_radius_px=spec.hit_radius_px,
+        )
+        return RoundState(public=public, pair=spec, pos_a=spec.pos_a, pos_b=spec.pos_b,
+                          explain=lambda hit, d: explanation_pool(spec, hit, d),
+                          hit_radius_px=spec.hit_radius_px)
 
     def create(self, n_rounds: int) -> GameSession:
-        if not self.pairs:
-            raise RuntimeError("no game data")
-        rounds = [self._make_round(p) for p in self._pick(n_rounds)]
+        rounds, fallback = None, None
+        if self.pool is not None and self.cfg.pool_enabled:
+            try:
+                if len(self.pool) < n_rounds:
+                    raise RuntimeError(f"the pool has {len(self.pool)} rounds, {n_rounds} needed")
+                rounds = [self._make_pool_round(p) for p in self._pick(n_rounds, self.pool)]
+                fallback = False
+            except Exception as exc:  # noqa: BLE001 - any pool problem: serve the Golden Path
+                logger.warning("Game: round pool unusable (%s); falling back to the Golden Path.", exc)
+                fallback = True
+        if rounds is None:
+            if not self.pairs:
+                raise RuntimeError("no game data")
+            rounds = [self._make_round(p) for p in self._pick(n_rounds)]
         now = self._clock()
         session = Session(session_id=uuid4(), rounds={r.public.round_id: r for r in rounds},
                           order=[r.public.round_id for r in rounds], expires_at=now + self.cfg.session_ttl_s)
@@ -367,12 +523,13 @@ class GameService:
             if len(self._sessions) >= self.cfg.max_sessions:
                 raise OverflowError("too many active sessions")
             self._sessions[session.session_id] = session
-        return self.public(session)
+        return self.public(session, fallback)
 
-    def public(self, session: Session) -> GameSession:
+    def public(self, session: Session, fallback: bool | None = None) -> GameSession:
         expires = datetime.now(UTC) + timedelta(seconds=max(session.expires_at - self._clock(), 0))
         return GameSession(session_id=session.session_id, expires_at=expires,
-                           rounds=[session.rounds[r].public for r in session.order], scoring=SCORING_ES)
+                           rounds=[session.rounds[r].public for r in session.order], scoring=SCORING_ES,
+                           fallback=fallback)
 
     def _prune(self, now: float) -> None:
         for sid in [s for s, v in self._sessions.items() if v.expires_at < now]:
@@ -403,14 +560,14 @@ class GameService:
             if not (0 <= x < size.width and 0 <= y < size.height):
                 raise ValueError(f"x and y must be inside the {size.width}x{size.height} image")
             distance = distance_to_segment((x, y), state.pos_b, state.pos_a)
-            hit = distance <= HIT_RADIUS_PX
+            hit = distance <= state.hit_radius_px
             mid = ((state.pos_a[0] + state.pos_b[0]) / 2, (state.pos_a[1] + state.pos_b[1]) / 2)
             state.result = GuessResult(
-                hit=hit, distance_px=round(distance, 1), score=round_score(distance, time_ms),
+                hit=hit, distance_px=round(distance, 1), score=round_score(distance, time_ms, state.hit_radius_px),
                 answer=Point(x=round(mid[0], 1), y=round(mid[1], 1)),
                 answer_path=[Point(x=round(p[0], 1), y=round(p[1], 1)) for p in (state.pos_b, state.pos_a)],
-                hit_radius_px=HIT_RADIUS_PX,
-                explanation_es=explanation(state.pair, hit, distance),
+                hit_radius_px=state.hit_radius_px,
+                explanation_es=state.explain(hit, distance),
             )
             session.expires_at = self._clock() + self.cfg.session_ttl_s
             return state.result
@@ -431,4 +588,5 @@ class GameService:
 def get_game_service() -> GameService:
     """FastAPI dependency (override it in tests via app.dependency_overrides)."""
     cfg = GameSettings()
-    return GameService(game_pairs(), cfg, CropStore(settings.static_dir / "game", cfg.crop_px))
+    return GameService(game_pairs(), cfg, CropStore(settings.static_dir / "game", cfg.crop_px),
+                       pool=load_pool() if cfg.pool_enabled else None)

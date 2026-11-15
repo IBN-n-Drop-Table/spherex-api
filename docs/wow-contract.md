@@ -161,7 +161,25 @@ Respuesta real (sin claves de IA, `context.target = "BARNARDS_STAR"`):
 
 ## 3. Juego "Encuentra lo que se mueve"
 
-Las rondas solo usan **Barnard's Star y Epsilon Indi B**, con pares consecutivos y el par primera-vs-última, y nunca el detector de anomalías. La respuesta correcta no sale del servidor hasta que se responde la ronda.
+Hay dos tipos de ronda, y ninguno usa el detector de anomalías. La respuesta correcta no sale del servidor hasta que se responde la ronda.
+
+- **Pool WISE vs SPHEREx** (`source: "wise_vs_spherex"`, por defecto si existe el pool). Una estrella cercana de alto movimiento propio por ronda: `image_b_url` es WISE (2010) y `image_a_url` es SPHEREx DR1 (2025-26, cubo HiPS, píxel de 12,9″). Las rondas de una partida no se repiten. La respuesta es la posición de Gaia DR3 propagada a cada fecha.
+- **Golden Path** (`source: "golden_path"`): **Barnard's Star y Epsilon Indi B**, con pares consecutivos y el par primera-vs-última, dos visitas de SPHEREx. Se usa si el pool no existe, falla o tiene menos rondas que la partida; entonces la sesión trae `"fallback": true`.
+
+**Campos opcionales nuevos** (15-11-2026; los clientes antiguos pueden ignorarlos):
+
+| Campo | Dónde | Significado |
+|---|---|---|
+| `fallback` | sesión | `true`: el pool faltaba o falló y las rondas son del Golden Path; `false`: rondas del pool; `null`: pool desactivado (`GAME_POOL=0`) |
+| `source` | ronda | `"wise_vs_spherex"` o `"golden_path"` |
+| `telescope_a`, `telescope_b` | ronda | Telescopio de cada imagen, para el texto de la UI |
+| `date_a_range`, `date_b_range` | ronda | `[inicio, fin]` cuando la imagen combina varias fechas (WISE 2010-01 a 2011-02; el HiPS de SPHEREx, varias visitas). `date_a`/`date_b` son el punto medio usado para la respuesta |
+| `region` | ronda | `{ra_deg, dec_deg, fov_arcmin}`: centro y tamaño de las imágenes, para el botón "Ver esta región en el visor" (`?ra=…&dec=…&fov=…`). Solo en rondas del pool |
+| `pixel_scale_arcsec` | ronda | Segundos de arco por píxel de los PNG de la ronda |
+| `spherex_pixel_scale_arcsec` | ronda | Resolución de los datos SPHEREx de la imagen (12,9 en el HiPS) |
+| `hit_radius_px` | ronda | Radio de acierto en píxeles de la imagen: 15″ en rondas del pool (unos 25 px), 20 px en el Golden Path. Es el mismo valor que devuelve `/guess` |
+
+En rondas del pool, `target_id` es `GAIA_DR3_<source_id>`, `target_name` es el nombre de SIMBAD (o el de Gaia), `kind` es `"first_vs_last"`, `epoch_a`/`epoch_b` son `"SPHEREx_DR1"`/`"WISE_2010"`, `weak_signal` es `false` y no hay `hint_image_url`. El pool actual tiene 105 rondas: 6 `easy`, 30 `medium` y 69 `hard` (dificultad por el desplazamiento esperado: ≥ 10, 5–10 y 3–5 píxeles nativos de SPHEREx).
 
 **Coordenadas.** `x`, `y` son posiciones **continuas** en la imagen de la ronda: el origen está arriba a la izquierda, +y va hacia abajo y el píxel *i* ocupa [*i*, *i*+1). Las dos imágenes de una ronda comparten tamaño (`image_size`, 300×300). Si la imagen se pinta escalada, convierte con `x = clickX * image_size.width / anchoMostrado`.
 
@@ -215,7 +233,8 @@ El cuerpo es opcional: `{"rounds": 5}`, con un valor entre 3 y 5 (5 por defecto)
       "expected_shift_arcsec": 2.04
     }
   ],
-  "scoring": "Miss (more than 20 pixels from the object's path): 0 points. Hit: 500 points, plus up to 300 for precision and up to 200 for speed (if you answer in under 30 s). Up to 1000 per round."
+  "scoring": "Miss (farther from the object's path than the round's hit radius, 20 pixels in SPHEREx-only rounds): 0 points. Hit: 500 points, plus up to 300 for precision and up to 200 for speed (if you answer in under 30 s). Up to 1000 per round.",
+  "fallback": true
 }
 ```
 
@@ -243,9 +262,9 @@ La sesión caduca a los 15 minutos sin actividad; cada intento renueva ese plazo
 - `answer_path` es un campo nuevo con la posición en `epoch_b` y luego en `epoch_a`. Sirve para dibujar la flecha.
 - `distance_px` es la distancia del intento a ese camino.
 
-**Puntuación** (0–1000 por ronda, calculada en el servidor):
-- Fallo, con `d` > 20 px: 0 puntos.
-- Acierto: `500 + 300·(1 − d/20) + 200·max(0, 1 − t/30 s)`.
+**Puntuación** (0–1000 por ronda, calculada en el servidor), con `R` = `hit_radius_px` de la ronda (20 px en el Golden Path):
+- Fallo, con `d` > `R`: 0 puntos.
+- Acierto: `500 + 300·(1 − d/R) + 200·max(0, 1 − t/30 s)`.
 
 **Errores:**
 

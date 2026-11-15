@@ -35,7 +35,7 @@ Steps
                    position empty (no blend or static source there);
                 5. two grayscale PNGs named by a salted hash, and a manifest
                    entry with the answer (server side only).
-              Writes app/static/game_pool/*.png and app/data/game_pool.json.
+              Writes app/static/game_pool/*.png and app/data/game_pool/manifest.json.
 
 The answer window: each round is a --png-size square grid; the grid centre is moved
 off the path's midpoint by a random (seeded by the star) offset, so the answer is
@@ -162,9 +162,15 @@ def gaia_cone(ra: float, dec: float, radius_arcsec: float) -> list[dict]:
     from astropy.coordinates import Latitude, Longitude
     from astropy_healpix import HEALPix
 
-    pix = HEALPix(nside=2**12, order="nested").cone_search_lonlat(
+    # Coarser HEALPix levels for wider cones: a level-k nested pixel holds 4**(12-k) level-12 ones,
+    # so its source_ids form one contiguous range too.
+    level = 12
+    while level > 6 and HEALPix(nside=2**level, order="nested").pixel_resolution.to_value(u.arcsec) < radius_arcsec / 2:
+        level -= 1
+    step = 2**35 * 4 ** (12 - level)
+    pix = HEALPix(nside=2**level, order="nested").cone_search_lonlat(
         Longitude(ra * u.deg), Latitude(dec * u.deg), radius_arcsec * u.arcsec)
-    ranges = " OR ".join(f"source_id BETWEEN {int(p) * 2**35} AND {(int(p) + 1) * 2**35 - 1}" for p in pix)
+    ranges = " OR ".join(f"source_id BETWEEN {int(p) * step} AND {(int(p) + 1) * step - 1}" for p in pix)
     t = tap_sync(GAIA_TAP, "SELECT source_id, ra, dec, pmra, pmdec, phot_g_mean_mag "
                            f"FROM gaiadr3.gaia_source WHERE {ranges}")
     out = []
@@ -186,7 +192,13 @@ def simbad_name(star: dict) -> str | None:
         adql = ("SELECT TOP 1 main_id FROM basic WHERE CONTAINS(POINT('ICRS', ra, dec), "
                 f"CIRCLE('ICRS', {ra:.6f}, {dec:.6f}, {5 / 3600:.6f})) = 1 ORDER BY nbref DESC")
         payload = http_transport(SIMBAD_TAP, adql, 15.0)
-        return str(payload["data"][0][0]).strip() if payload.get("data") else None
+        if not payload.get("data"):
+            return None
+        name = " ".join(str(payload["data"][0][0]).split())
+        for prefix in ("NAME ", "V* ", "* "):  # SIMBAD catalogue prefixes, not part of the name
+            if name.startswith(prefix):
+                name = name[len(prefix):]
+        return name
     except Exception as exc:  # noqa: BLE001 - a name is a nicety
         log.info("SIMBAD name lookup failed: %s", exc)
         return None
@@ -350,7 +362,7 @@ def hips_stack(grid, shape: tuple[int, int], a: argparse.Namespace) -> dict:
     tiles = sorted({hips_tile(float(r), float(d)) for r, d in zip(sky.ra.deg, sky.dec.deg)})
     total = np.zeros(shape)
     count = np.zeros(shape)
-    beg, end, nbytes, pixel_arcsec = [], [], 0, None
+    beg, end, nbytes, pixel_arcsec, geoms, saturated_holes = [], [], 0, None, [], 0
     for npix in tiles:
         url = f"{HIPS_ROOT}/Dir{npix // 10000 * 10000}/Npix{npix}_cube.fits"
         h0, d0 = fits_header_at(url, 0, a.timeout)
@@ -378,9 +390,11 @@ def hips_stack(grid, shape: tuple[int, int], a: argparse.Namespace) -> dict:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", RuntimeWarning)
             img = np.nanmedian(np.stack(planes), axis=0)
+        img, n_filled = fill_saturated_holes(img)
+        saturated_holes += n_filled
         sub = w[y0:y1 + 1, x0:x1 + 1]
-        out, foot = reproject_interp((img, sub), grid, shape_out=shape, order="bilinear")
-        ok = (foot > 0) & np.isfinite(out)
+        geoms.append((sub, img.shape))
+        out, ok = interp_nan_safe(img, sub, grid, shape)
         total[ok] += out[ok]
         count[ok] += 1
         beg.append(float(h0["MJD-BEG"]))
@@ -388,8 +402,89 @@ def hips_stack(grid, shape: tuple[int, int], a: argparse.Namespace) -> dict:
     if not count.any():
         return {"status": "rejected", "reason": "no_hips_coverage"}
     image = np.where(count > 0, total / np.maximum(count, 1), np.nan)
-    return {"status": "ok", "image": image, "mjd_beg": min(beg), "mjd_end": max(end), "tiles": tiles,
+    return {"status": "ok", "image": image, "geoms": geoms, "saturated_holes": saturated_holes, "mjd_beg": min(beg), "mjd_end": max(end), "tiles": tiles,
             "bytes": nbytes, "pixel_arcsec": pixel_arcsec, "coverage": float((count > 0).mean())}
+
+
+def fill_saturated_holes(img: np.ndarray, max_px: int = 16) -> tuple[np.ndarray, int]:
+    """The DR1 HiPS leaves the saturated cores of bright stars as small NaN holes (checked
+    2026-11-15: all 7 "partial coverage" rejections were 1-4 NaN pixels exactly on a G = 6-10 star).
+    Holes of <= max_px pixels not touching the edge are filled, for display, like the Golden Path
+    does: with the maximum of their surroundings when those are bright (> median + 20 sigma, a
+    saturated core = white), otherwise with their median (never invents a source). Returns
+    (image, number of saturated holes filled)."""
+    from scipy.ndimage import binary_dilation, label
+
+    holes, n = label(~np.isfinite(img))
+    if n == 0:
+        return img, 0
+    out = img.copy()
+    med, sig = robust_sigma(img)
+    filled = 0
+    for k in range(1, n + 1):
+        hole = holes == k
+        if hole.sum() > max_px or hole[0].any() or hole[-1].any() or hole[:, 0].any() or hole[:, -1].any():
+            continue
+        ring = binary_dilation(hole, iterations=2) & ~hole & np.isfinite(img)
+        if not ring.any():
+            continue
+        bright = float(np.max(img[ring])) > med + 20 * sig
+        out[hole] = float(np.max(img[ring])) if bright else float(np.median(img[ring]))
+        filled += int(bright)
+    return out, filled
+
+
+def interp_nan_safe(img: np.ndarray, wcs, grid, shape: tuple[int, int]) -> tuple[np.ndarray, np.ndarray]:
+    """Bicubic reproject_interp that survives NaNs (a spline prefilter spreads a single NaN over the
+    whole output): NaNs are filled with the median first, and output pixels that took more than 1 %
+    of their weight from them are set back to NaN. Returns (image, valid-pixel mask)."""
+    from reproject import reproject_interp
+
+    valid = np.isfinite(img)
+    filled = np.where(valid, img, np.nanmedian(img) if valid.any() else 0.0)
+    out, foot = reproject_interp((filled, wcs), grid, shape_out=shape, order="bicubic")
+    weight = reproject_interp((valid.astype(float), wcs), grid, shape_out=shape, order="bilinear",
+                              return_footprint=False)
+    ok = (foot > 0) & np.isfinite(weight) & (weight >= 0.99)
+    return np.where(ok, out, np.nan), ok
+
+
+def hips_look(img: np.ndarray, wcs, geoms: list, grid, shape: tuple[int, int]) -> np.ndarray:
+    """Give another image (WISE) the HiPS pixelisation: resample it onto the same 12.9" HPX
+    sub-grids with reproject_adaptive (anti-aliased averaging over each coarse pixel, which plays
+    the part of matching the PSF to the HiPS one), then onto the round grid exactly as hips_stack
+    does with SPHEREx (bicubic). Both images then share pixels and interpolation."""
+    from reproject import reproject_adaptive
+
+    total, count = np.zeros(shape), np.zeros(shape)
+    for sub, sub_shape in geoms:
+        coarse = reproject_adaptive((img, wcs), sub, shape_out=sub_shape, return_footprint=False,
+                                    conserve_flux=False, boundary_mode="ignore")
+        out, ok = interp_nan_safe(coarse, sub, grid, shape)
+        total[ok] += out[ok]
+        count[ok] += 1
+    return np.where(count > 0, total / np.maximum(count, 1), np.nan)
+
+
+def soften(img: np.ndarray, sigma_px: float) -> np.ndarray:
+    """Gaussian blur (same for both images) that hides the facets of the 45-degree HPX pixels."""
+    from scipy.ndimage import gaussian_filter
+
+    finite = np.isfinite(img)
+    if not finite.any():
+        return img
+    filled = np.where(finite, img, np.nanmedian(img))
+    out = gaussian_filter(filled, sigma_px)
+    out[~finite] = np.nan
+    return out
+
+
+def display_limits(img: np.ndarray, star_xy: tuple[float, float], scale: float) -> tuple[float, float]:
+    """Same stretch rule for both images: black = background - 1 sigma, white = the target star's peak.
+    The star then looks alike in both, whatever the instrument's units."""
+    med, sig = robust_sigma(img)
+    peak = peak_near(img, *star_xy, 8.0 / scale)
+    return med - sig, max(peak, med + 5 * sig)
 
 
 def centroid(img: np.ndarray, x0: float, y0: float, radius: float, half: float) -> tuple[float, float] | None:
@@ -430,7 +525,8 @@ def peak_near(img: np.ndarray, x: float, y: float, radius: float) -> float:
 
 
 def qa_image(img: np.ndarray, here: tuple[float, float], there: tuple[float, float], scale: float,
-             tol_arcsec: float, min_snr: float, max_ghost: float, max_clutter: float | None = None) -> dict:
+             tol_arcsec: float, min_snr: float, max_ghost: float, max_clutter: float | None = None,
+             known: list[tuple[float, float]] | None = None) -> dict:
     """`here`: the star's predicted 0-based grid position in this image; `there`: its position at
     the other date, which must look empty. Positions in 0-based grid pixels (FITS orientation)."""
     med, sig = robust_sigma(img)
@@ -447,6 +543,8 @@ def qa_image(img: np.ndarray, here: tuple[float, float], there: tuple[float, flo
     yy, xx = np.indices(img.shape)
     away = np.isfinite(img) & (np.hypot(xx - here[0], yy - here[1]) > 25.0 / scale) \
         & (np.hypot(xx - there[0], yy - there[1]) > 25.0 / scale)
+    for kx, ky in known or ():  # real catalogued stars are not clutter
+        away &= np.hypot(xx - kx, yy - ky) > 20.0 / scale
     other = float(img[away].max()) - med if away.any() else 0.0
     out["clutter_ratio"] = round(other / peak, 2) if peak > 0 else None
     out["visible"] = bool(peak / sig >= min_snr)
@@ -457,12 +555,15 @@ def qa_image(img: np.ndarray, here: tuple[float, float], there: tuple[float, flo
     return out
 
 
-def to_png(img: np.ndarray) -> bytes:
-    """Grayscale asinh stretch (1st-99.7th percentile of the image), north up."""
+def to_png(img: np.ndarray, limits: tuple[float, float] | None = None) -> bytes:
+    """Grayscale asinh stretch, north up. `limits`: (black, white); default 1st-99.7th percentile."""
     from PIL import Image
 
     v = img[np.isfinite(img)]
-    lo, hi = (np.percentile(v, 1.0), np.percentile(v, 99.7)) if v.size else (0.0, 1.0)
+    if limits is not None:
+        lo, hi = limits
+    else:
+        lo, hi = (np.percentile(v, 1.0), np.percentile(v, 99.7)) if v.size else (0.0, 1.0)
     x = np.clip((np.nan_to_num(img, nan=lo) - lo) / max(hi - lo, 1e-12), 0, 1)
     u8 = (np.arcsinh(8 * x) / np.arcsinh(8) * 255).astype(np.uint8)
     buf = io.BytesIO()
@@ -521,7 +622,6 @@ def build_round(gp, star: dict, a: argparse.Namespace, salt: str, static_dir: Pa
     t1 = time.monotonic()
     w_img, w_wcs = unwise_w1(*center, int(math.ceil(fov * math.sqrt(2) / UNWISE_PIXEL_ARCSEC)) + 10, a.timeout)
     wise = reproject_interp((w_img, w_wcs), grid, shape_out=shape, return_footprint=False, order="bilinear")
-    del w_img
     timings["wise_s"] = round(time.monotonic() - t1, 2)
 
     def grid_xy(pos):  # 0-based, FITS orientation
@@ -530,6 +630,10 @@ def build_round(gp, star: dict, a: argparse.Namespace, salt: str, static_dir: Pa
         return tuple(float(v) for v in grid.world_to_pixel(SkyCoord(*pos, unit="deg")))
 
     wise_tol = a.tol_arcsec + 0.5 * pm  # +-0.5 yr on the WISE epoch
+    # Catalogued stars over the whole window (bright enough to show), for the clutter test.
+    window_field = gaia_cone(*center, fov / math.sqrt(2) + 10.0) if a.mask_gaia else []
+    known_stars = [o for o in window_field if o["source_id"] != sid
+                   and o["phot_g_mean_mag"] <= star["phot_g_mean_mag"] + a.mask_dmag]
     qa_w = qa_image(wise, grid_xy(pos_w), grid_xy(pos_now), scale, wise_tol, a.min_snr, a.max_ghost)
     if not (qa_w["visible"] and qa_w["on_target"] and qa_w["other_position_empty"]):
         return {"status": "rejected", "reason": "wise_qa", "qa_wise": qa_w, "timings": timings}
@@ -549,7 +653,9 @@ def build_round(gp, star: dict, a: argparse.Namespace, salt: str, static_dir: Pa
         if sx["coverage"] < 0.9 or not np.isfinite(sx["image"][near_both]).all():
             return {"status": "rejected", "reason": "hips_partial_coverage", "detail": f"{sx['coverage']:.0%}",
                     "timings": timings, "qa_wise": qa_w}
-        spherex = sx["image"]
+        soft_px = 0.4 * sx["pixel_arcsec"] / scale
+        spherex = soften(sx["image"], soft_px)
+        wise_display = soften(hips_look(w_img, w_wcs, sx["geoms"], grid, shape), soft_px)
         # The tile coadds every input between MJD-BEG and MJD-END: the answer uses the middle and
         # the tolerance absorbs half the span (pm x span / 2).
         s_time = Time((sx["mjd_beg"] + sx["mjd_end"]) / 2, format="mjd", scale="utc")
@@ -564,9 +670,13 @@ def build_round(gp, star: dict, a: argparse.Namespace, salt: str, static_dir: Pa
                                    order="bilinear")
         s_time = Time(sx["mjd"], format="mjd", scale="utc")
         s_tol = a.tol_arcsec
+        wise_display = wise
+    del w_img
     pos_s = gaia_at(star, float(s_time.jyear))
+    known_xy = [grid_xy(gaia_at(o, float(s_time.jyear))) for o in known_stars]
     qa_s = qa_image(spherex, grid_xy(pos_s), grid_xy(pos_w), scale, s_tol, a.min_snr, a.max_ghost,
-                    a.max_clutter)
+                    a.max_clutter, known_xy)
+    qa_s["known_stars_masked"] = len(known_xy)
     # The WISE image must also be empty where SPHEREx sees the star (exact date now).
     qa_w = qa_image(wise, grid_xy(pos_w), grid_xy(pos_s), scale, wise_tol, a.min_snr, a.max_ghost)
     if not (qa_s["visible"] and qa_s["on_target"] and qa_s["other_position_empty"] and qa_s["uncluttered"]):
@@ -585,9 +695,10 @@ def build_round(gp, star: dict, a: argparse.Namespace, salt: str, static_dir: Pa
 
     # 5. Files and manifest entry (the answer stays in the manifest, server side).
     names = {}
-    for tag, img in (("a", spherex), ("b", wise)):
+    for tag, img, star_at in (("a", spherex, pos_s), ("b", wise_display, pos_w)):
         name = hashlib.sha256(f"{salt}|{sid}|{tag}".encode()).hexdigest()[:24] + ".png"
-        (static_dir / name).write_bytes(to_png(img))
+        limits = display_limits(img, grid_xy(star_at), scale) if a.spherex_source == "hips" else None
+        (static_dir / name).write_bytes(to_png(img, limits))
         names[tag] = name
     pa, pb = to_png_xy(grid, a.png_size, pos_s), to_png_xy(grid, a.png_size, pos_w)
     def iso(t) -> str:
@@ -598,6 +709,7 @@ def build_round(gp, star: dict, a: argparse.Namespace, salt: str, static_dir: Pa
         spherex_meta = {"product": "SPHEREx DR1 HiPS cube (nasa-irsa-spherex S3, hips5_cube/hips_20261026)",
                         "tiles": sx["tiles"], "channels": list(HIPS_CHANNELS), "bandpass_um": [1.1, 2.4],
                         "date_range": [iso(Time(sx["mjd_beg"], format="mjd")), iso(Time(sx["mjd_end"], format="mjd"))],
+                        "saturated_holes_filled": sx["saturated_holes"],
                         "bytes_read": sx["bytes"]}
         spherex_px = round(sx["pixel_arcsec"], 2)
     else:
@@ -654,7 +766,7 @@ def read_log(path: Path) -> dict[int, dict]:
 def write_manifest(a: argparse.Namespace) -> Path:
     entries = [r["round"] for r in read_log(a.work / "build_log.jsonl").values() if r["status"] == "ok"]
     entries.sort(key=lambda r: r["round_key"])
-    out = a.out_root / "app" / "data" / "game_pool.json"
+    out = a.out_root / "app" / "data" / "game_pool" / "manifest.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({
         "version": 1,
@@ -720,7 +832,7 @@ def main() -> int:
     p.add_argument("command", choices=["candidates", "build", "manifest"])
     p.add_argument("--work", type=Path, default=WORK_DIR, help="candidates, build log and salt")
     p.add_argument("--out-root", type=Path, default=REPO_ROOT,
-                   help="write app/static/game_pool/ and app/data/game_pool.json under this root")
+                   help="write app/static/game_pool/ and app/data/game_pool/manifest.json under this root")
     # candidates
     p.add_argument("--min-parallax", type=float, default=50.0, help="mas (indexed on the ARI mirror)")
     p.add_argument("--min-pm", type=float, default=1200.0, help="mas/yr; 1.2\"/yr x 15.3 yr = 3 SPHEREx px")
@@ -750,6 +862,10 @@ def main() -> int:
                    help="max (peak at the other date's position) / (star peak)")
     p.add_argument("--max-clutter", type=float, default=0.5,
                    help="SPHEREx: max (brightest other feature, >25\" from both positions) / (star peak)")
+    p.add_argument("--mask-gaia", action=argparse.BooleanOptionalAction, default=True,
+                   help="clutter test ignores 20\" around catalogued Gaia stars")
+    p.add_argument("--mask-dmag", type=float, default=4.0,
+                   help="mask Gaia stars up to G_star + this many magnitudes")
     p.add_argument("-v", "--verbose", action="store_true")
     a = p.parse_args()
     logging.basicConfig(level=logging.DEBUG if a.verbose else logging.INFO,

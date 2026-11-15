@@ -1,7 +1,37 @@
 # Pool de rondas WISE vs SPHEREx: estado
 
-Generador: [`scripts/build_game_pool.py`](../scripts/build_game_pool.py). Todavía no lo usa el
-juego ni la API.
+Generador: [`scripts/build_game_pool.py`](../scripts/build_game_pool.py). El juego lo usa desde el
+15-11-2026: `POST /api/v1/game/sessions` sortea del pool (`app/data/game_pool/manifest.json` y
+`app/static/game_pool/`) y cae al Golden Path con `fallback: true` si falta o falla.
+
+## Pool desplegado (15-11-2026, ruta HiPS)
+
+| | Fáciles | Medias | Difíciles | Total |
+|---|---|---|---|---|
+| Candidatas (G ≥ 6, paralaje > 20 mas, \|b\| ≥ 15°) | 12 | 44 | 191 | 247 |
+| Rondas jugables | 6 | 30 | 69 | **105** |
+
+Descartes: 89 control de SPHEREx (casi todos difíciles: estrella y sitio vacío demasiado juntos),
+38 vecina en Gaia, 14 control de WISE, 1 fallo de red (unWISE). Tamaño: 2,2 MB de PNG + 240 KB
+de manifiesto. Desplazamiento medido vs esperado: mediana 1,8″, p90 3,2″, máximo 5,8″.
+5–13 s por estrella al generar; `POST /game/sessions` tarda ~3 ms (36 ms la primera vez).
+
+Mejoras respecto a la primera versión:
+
+- Aspecto: WISE pasa por la misma pixelización que SPHEREx (remuestreo adaptativo a la rejilla
+  HPX de 12,9″), las dos van a la rejilla de la ronda con interpolación bicúbica y el mismo
+  suavizado gaussiano, y comparten la regla de brillo (negro = fondo − 1σ, blanco = pico de la
+  estrella).
+- Filtro de artefactos: ignora 20″ alrededor de las estrellas de Gaia con G ≤ G_estrella + 4;
+  recuperó 7 rondas que se descartaban por estrellas reales del campo.
+- Cobertura parcial: era un hueco real de los datos, no un fallo de lectura: el HiPS deja en NaN
+  el núcleo saturado de las estrellas brillantes (1–4 píxeles justo sobre la estrella, G 6–10).
+  Se rellena para mostrarlo como "saturado = blanco", igual que el Golden Path.
+- Ampliación: candidatas con paralaje > 20 mas y rondas difíciles (3–5 píxeles nativos).
+
+Limitaciones que quedan: en estrellas puntuales aún se adivina la forma de rombo de los píxeles
+HPX; en las rondas difíciles la estrella salta más o menos el ancho de su mancha (se solapan);
+en WISE algunas estrellas brillantes salen alargadas por sus espigas de difracción; solo DR1.
 
 ## Estado: la parte de SPHEREx NO está validada
 

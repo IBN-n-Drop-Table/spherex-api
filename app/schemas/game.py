@@ -29,6 +29,13 @@ class ImageSize(_Strict):
     height: int
 
 
+class Region(_Strict):
+    """Sky region shown in a round, for the viewer's shareable URL (?ra=..&dec=..&fov=..)."""
+    ra_deg: float
+    dec_deg: float
+    fov_arcmin: float
+
+
 class GameRound(_Strict):
     round_id: str
     target_id: str = Field(examples=["BARNARDS_STAR"])
@@ -49,6 +56,21 @@ class GameRound(_Strict):
     difficulty: Difficulty
     delta_t_days: float
     expected_shift_arcsec: float
+    # Optional fields (added 2026-11-15). Golden Path rounds fill only `source`,
+    # `telescope_*`, `pixel_scale_arcsec` and `hit_radius_px`.
+    source: Literal["golden_path", "wise_vs_spherex"] | None = Field(
+        default=None, description="golden_path: two SPHEREx visits; wise_vs_spherex: WISE (2010) vs SPHEREx")
+    telescope_a: str | None = Field(default=None, description="Telescope of image_a (later)")
+    telescope_b: str | None = Field(default=None, description="Telescope of image_b (earlier)")
+    date_a_range: list[datetime] | None = Field(
+        default=None, description="[start, end] of the data in image_a when it combines several dates")
+    date_b_range: list[datetime] | None = Field(
+        default=None, description="[start, end] of the data in image_b when it combines several dates")
+    region: Region | None = Field(default=None, description="Centre and size of the round's images")
+    pixel_scale_arcsec: float | None = Field(default=None, description="Arcsec per pixel of the round's PNGs")
+    spherex_pixel_scale_arcsec: float | None = Field(
+        default=None, description="Resolution of the SPHEREx data behind the image (12.9 for the DR1 HiPS)")
+    hit_radius_px: float | None = Field(default=None, description="A guess within this distance is a hit")
 
 
 class GameSession(_Strict):
@@ -56,6 +78,9 @@ class GameSession(_Strict):
     expires_at: datetime = Field(description="Extended on every guess")
     rounds: list[GameRound]
     scoring: str = Field(description="How a round is scored, in English")
+    fallback: bool | None = Field(
+        default=None, description="true: the WISE vs SPHEREx pool was missing or failed and the rounds "
+        "come from the Golden Path; false: pool rounds; null: the pool is not configured")
 
 
 class NewSession(_Strict):

@@ -358,3 +358,111 @@ def test_supabase_failure_falls_back_to_memory():
     entry, backend = service.add("Clyde", 900, 1, 1, 3)
     assert backend == "memory" and service.backend == "memory"
     assert [e.nickname for e in service.top()] == ["Clyde"]
+
+
+# --------------------------------------------------------------------------- #
+# WISE vs SPHEREx round pool (app/data/game_pool/manifest.json)
+# --------------------------------------------------------------------------- #
+
+
+def _write_pool(root: Path, n_easy: int = 3, n_medium: int = 5, n_hard: int = 0) -> Path:
+    import json
+
+    static = root / "static" / "game_pool"
+    static.mkdir(parents=True)
+    rounds = []
+    for i, level in enumerate(["easy"] * n_easy + ["medium"] * n_medium + ["hard"] * n_hard):
+        names = {}
+        for tag in ("a", "b"):
+            names[tag] = f"{i:02d}{tag}" + "0" * 20 + ".png"
+            Image.new("L", (300, 300)).save(static / names[tag])
+        rounds.append({
+            "round_key": f"k{i:02d}", "gaia_source_id": str(1000 + i), "name": f"Star  {i}", "difficulty": level,
+            "image_a": names["a"], "image_b": names["b"], "telescope_a": "SPHEREx", "telescope_b": "WISE",
+            "date_a": "2025-11-01T00:00:00Z", "date_b": "2010-07-02T00:00:00Z",
+            "date_a_range": ["2025-07-01T00:00:00Z", "2026-03-01T00:00:00Z"],
+            "date_b_range": ["2010-01-07T00:00:00Z", "2011-02-01T00:00:00Z"],
+            "delta_t_days": 5600.0, "expected_shift_arcsec": 40.0,
+            "pos_a": [150.0, 100.0], "pos_b": [150.0, 166.0], "image_size": 300,
+            "pixel_scale_arcsec": 0.6, "spherex_pixel_scale_arcsec": 12.9,
+            "region": {"ra_deg": 10.0, "dec_deg": -20.0, "fov_arcmin": 3.0},
+        })
+    manifest = root / "game_pool.json"
+    manifest.write_text(json.dumps({"version": 1, "rounds": rounds}))
+    return manifest
+
+
+@pytest.fixture
+def pool_game(tmp_path):
+    from app.services.game import load_pool
+
+    manifest = _write_pool(tmp_path)
+    pool = load_pool(manifest, tmp_path / "static" / "game_pool")
+    service = GameService(game_pairs(), GameSettings(), CropStore(tmp_path / "game", 300, salt="t",
+                                                                   static_root=tmp_path), pool=pool)
+    app.dependency_overrides[get_game_service] = lambda: service
+    app.dependency_overrides[get_game_limiters] = lambda: {k: SlidingWindowLimiter(1000, 60)
+                                                           for k in ("sessions", "guess", "finish")}
+    client = TestClient(app)
+    client.service = service
+    yield client
+    app.dependency_overrides.clear()
+
+
+def test_pool_sessions_draw_distinct_pool_rounds(pool_game):
+    for _ in range(20):
+        s = new_session(pool_game)
+        assert s["fallback"] is False
+        rounds = s["rounds"]
+        assert len({r["target_id"] for r in rounds}) == 5  # no repeats within a session
+        assert all(r["source"] == "wise_vs_spherex" and r["image_a_url"].startswith("http://testserver/static/game_pool/")
+                   for r in rounds)
+        assert rounds[0]["difficulty"] == "easy" and {r["difficulty"] for r in rounds} == {"easy", "medium"}
+        r = rounds[0]
+        assert r["telescope_b"] == "WISE" and r["spherex_pixel_scale_arcsec"] == 12.9
+        assert r["region"] == {"ra_deg": 10.0, "dec_deg": -20.0, "fov_arcmin": 3.0}
+        assert len(r["date_a_range"]) == 2 and r["target_name"] == f"Star {r['target_id'][-2:].lstrip('0') or '0'}"
+        assert not {"answer", "pos_a", "pos_b", "x", "y"} & set(r)
+
+
+def test_pool_guess_uses_the_round_hit_radius(pool_game):
+    s = new_session(pool_game)
+    r = s["rounds"][1]
+    assert r["hit_radius_px"] == 25.0  # 15" at 0.6"/px
+    res = pool_game.post(f"{BASE}/guess", json={"session_id": s["session_id"], "round_id": r["round_id"],
+                                                "x": 150 + 24, "y": 130, "time_ms": 1000}).json()
+    assert res["hit"] and res["hit_radius_px"] == 25.0 and "WISE (2010)" in res["explanation_es"]
+    assert res["answer_path"] == [{"x": 150.0, "y": 166.0}, {"x": 150.0, "y": 100.0}]
+    miss = pool_game.post(f"{BASE}/guess", json={"session_id": s["session_id"], "round_id": s["rounds"][2]["round_id"],
+                                                 "x": 150 + 26, "y": 130, "time_ms": 1000}).json()
+    assert not miss["hit"] and miss["score"] == 0
+
+
+@pytest.mark.parametrize("pool", [(), "small"])
+def test_missing_or_small_pool_falls_back_to_the_golden_path(tmp_path, pool):
+    from app.services.game import load_pool
+
+    if pool == "small":
+        pool = load_pool(_write_pool(tmp_path, n_easy=1, n_medium=1), tmp_path / "static" / "game_pool")
+    service = GameService(game_pairs(), GameSettings(), CropStore(tmp_path / "game", 300, salt="t",
+                                                                   static_root=tmp_path), pool=pool)
+    s = service.create(5)
+    assert s.fallback is True
+    assert {r.target_id for r in s.rounds} <= {"BARNARDS_STAR", "EPSILON_INDI_B"}
+    assert {r.source for r in s.rounds} == {"golden_path"}
+
+
+def test_load_pool_skips_rounds_without_images_and_bad_files(tmp_path):
+    from app.services.game import load_pool
+
+    manifest = _write_pool(tmp_path)
+    static = tmp_path / "static" / "game_pool"
+    next(static.glob("00a*.png")).unlink()
+    assert len(load_pool(manifest, static)) == 7
+    assert load_pool(tmp_path / "nope.json", static) == ()
+    manifest.write_text("{not json")
+    assert load_pool(manifest, static) == ()
+
+
+def test_without_a_pool_fallback_is_null(game):
+    assert new_session(game)["fallback"] is None

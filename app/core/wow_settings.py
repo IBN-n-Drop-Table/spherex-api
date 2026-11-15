@@ -53,6 +53,8 @@ class GameSettings:
     session_ttl_s: int = field(default_factory=lambda: _int("GAME_SESSION_TTL_S", 900))
     max_sessions: int = field(default_factory=lambda: _int("GAME_MAX_SESSIONS", 2000))
     crop_px: int = field(default_factory=lambda: _int("GAME_CROP_PX", 300))
+    # WISE vs SPHEREx round pool (app/data/game_pool.json); GAME_POOL=0 serves only the Golden Path.
+    pool_enabled: bool = field(default_factory=lambda: os.getenv("GAME_POOL", "1") != "0")
     # Per client IP, per minute.
     sessions_per_min: int = field(default_factory=lambda: _int("GAME_SESSIONS_PER_MIN", 10))
     guesses_per_min: int = field(default_factory=lambda: _int("GAME_GUESSES_PER_MIN", 60))
