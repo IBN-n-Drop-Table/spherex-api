@@ -36,6 +36,7 @@ Base de las rutas: `/api/v1`. CORS abierto (`*`). Las cabeceras `Location` y `Re
 | POST | `/game/finish` | Guarda la puntuación (la calcula el servidor) | 404, 409, 410, 422, 429 |
 | GET | `/game/leaderboard` | Los 20 mejores | — |
 | GET | `/loading-phrases` | Frases para las pantallas de carga | — |
+| GET | `/catalog-objects` | Objetos catalogados en SIMBAD, en píxeles sobre la imagen de `/sky-patch` (apartado 2.6) | 404, 422, 429 |
 | GET | `/credits` y `/api/v1/credits` | Citas de los datos usados | — |
 | GET | `/sky-patch`, `/spectrum`, `/epochs`, `/jobs/{id}` | Ya existían; campos y textos nuevos (apartado 2.5) | ver 2.5 |
 
@@ -458,6 +459,37 @@ Significado de los campos de cautela:
 - `fallback_reason`: `null` si no hubo fallback; si no, `irsa_unavailable`, `live_processing_unavailable` o `unknown`. Con `fallback: true`, el texto para mostrar está en `fallback_message`.
 - `weak_signal` (en `difference_imaging` y en cada par de `pairwise`): `true` si el desplazamiento esperado es menor que un píxel de SPHEREx (6,15″). Los pares consecutivos de los 5 objetos son siempre `true`.
 
+### 2.6 `GET /catalog-objects`: objetos de SIMBAD sobre la imagen
+
+Marcadores para dibujar sobre la imagen de SPHEREx. **El contrato completo, los ejemplos reales y la verificación están en [wow-contract.md, apartado 5](wow-contract.md#5-objetos-catalogados-en-simbad-get-apiv1catalog-objects).** Resumen para quien integra:
+
+- Parámetros: `target` **o** `ra`+`dec` (como `/sky-patch`), `epoch` (visita, solo Golden Path), `max_n` (1–50, 20 por defecto), `type_filter` (`all`, `no_common_stars`, `ir_galaxies`). Orden fijo: más referencias bibliográficas primero.
+- Cada objeto trae `x`, `y` en píxeles **de la imagen que se ve**, con el origen arriba a la izquierda (como el juego): `left = x * anchoMostrado / image_size.width`. No hay que invertir ningún eje.
+- Las posiciones ya están movidas a la fecha de la visita con el movimiento propio de SIMBAD. Los objetos que SIMBAD no mueve llevan `proper_motion_applied: false`.
+- Siempre 200 si la petición es válida. Con SIMBAD caído llega `source: "cache" | "precomputed" | "none"`, `fallback_reason` y `fallback_message` (inglés, para mostrar tal cual).
+- Límite: 20 peticiones por IP y minuto (429 con `Retry-After`). La primera petición a un campo nuevo puede tardar hasta unos 5 s (SIMBAD); las repetidas salen de la caché del servidor.
+
+```json
+{
+  "objects": [
+    {"id": "NAME Barnard's star", "otype": "BY*", "otype_label": "BY Dra Variable", "x": 300.0, "y": 300.0,
+     "mag": 9.511, "mag_band": "V", "nbref": 924,
+     "simbad_url": "https://simbad.cds.unistra.fr/simbad/sim-id?Ident=NAME%20Barnard%27s%20star",
+     "proper_motion_applied": true}
+  ],
+  "image_size": {"width": 600, "height": 600},
+  "epoch_applied": {"epoch_id": "2025_M0", "date": "2025-08-27T09:09:36Z", "julian_year": 2025.653},
+  "truncated": false,
+  "source": "simbad",
+  "fallback_reason": null,
+  "data_credits": ["... SIMBAD, spherex_dr1, spherex_qr3 ..."],
+  "notice": "Objects catalogued in SIMBAD, shown at their expected position on this image. They are not SPHEREx detections.",
+  "fallback_message": null
+}
+```
+
+(Un solo objeto de los devueltos y `data_credits` abreviado; la respuesta completa está en el contrato.)
+
 ## 3. Cambios que pueden romper el frontend actual
 
 Comparado con el frontend de `main` (`210e2ba`, leído en solo lectura).
@@ -523,6 +555,14 @@ Categorías: `generic`, `cold_start`, `subtraction`, `game`, `chat`. **Esto es u
 
 Elegir una al azar y cambiarla cada 4 a 5 s. Como el endpoint puede estar durmiendo, el frontend debería llevar una **copia local** de las frases (por ejemplo las de arriba) y refrescarla del servidor cuando responda. Una frase de la lista, "Spot the difference, but the difference is a planet.", sugiere que hay un planeta; si se quiere respetar la regla de no afirmar hallazgos, conviene cambiarla en `app/core/loading_phrases.py`.
 
+### 4.5 Marcadores de SIMBAD: catálogo, no descubrimiento
+
+1. **Rotular como catálogo.** Son objetos "catalogued in SIMBAD", **no detecciones de SPHEREx**. Mostrar `notice` (o "Catalogued in SIMBAD") junto a la capa. No usar "detected", "found" ni "discovered", y no mezclarlos con la capa de anomalías (`detected_anomalies`), que sí es una detección por software.
+2. Mostrar `fallback_message` si `fallback_reason` no es `null`.
+3. Citar SIMBAD/CDS con `data_credits` o `GET /credits`.
+4. Agrupar marcadores a pocos píxeles: los planetas de una estrella tienen su misma posición (Barnard's Star: cuatro planetas en el píxel de la estrella).
+5. `x`, `y` de un objeto sin movimiento propio (`proper_motion_applied: false`) es su posición J2000, no necesariamente la actual.
+
 ## 5. Variables de entorno y configuración (backend)
 
 **Ninguna es obligatoria**: el backend arranca sin ellas. Lo que cambia si faltan:
@@ -538,6 +578,13 @@ Elegir una al azar y cambiarla cada 4 a 5 s. Como el endpoint puede estar durmie
 | `CHAT_DAILY_PROVIDER_CAP` | `1000` | Llamadas diarias a proveedores, todos los usuarios |
 | `CHAT_CACHE_TTL_S` | `3600` | Vida de la caché de respuestas |
 | `GAME_SESSION_TTL_S` | `900` | Caducidad de una partida inactiva |
+| `SIMBAD_TAP_URL` | `https://simbad.cds.unistra.fr/simbad/sim-tap/sync` | Servicio TAP síncrono. Con CDS caído: `https://simbad.cfa.harvard.edu/simbad/sim-tap/sync` |
+| `SIMBAD_TIMEOUT_S` | `5` | Segundos hacia SIMBAD antes de servir caché o precalculado |
+| `SIMBAD_RATE_PER_MIN` | `20` | Peticiones a `/catalog-objects` por IP y minuto |
+| `SIMBAD_GLOBAL_QPS` | `3` | Tope global de consultas por segundo hacia SIMBAD (todos los usuarios) |
+| `SIMBAD_CACHE_TTL_S` | `3600` | Vida de la caché en memoria |
+| `SIMBAD_CACHE_MAX_ENTRIES` | `500` | Entradas de esa caché |
+| `SIMBAD_FETCH_LIMIT` | `200` | Filas pedidas a SIMBAD por consulta |
 | `GAME_SESSIONS_PER_MIN`, `GAME_GUESSES_PER_MIN`, `GAME_FINISH_PER_MIN` | `10`, `60`, `5` | Límites por IP |
 | `GAME_CROP_PX` | `300` | Lado de las imágenes de ronda (el frontend lo lee de `image_size`) |
 | `GAME_SALT` | aleatoria en cada arranque | Fija los nombres de los recortes entre reinicios |
