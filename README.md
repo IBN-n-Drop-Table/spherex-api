@@ -577,22 +577,26 @@ Add a `Target(...)` to `app/core/targets.py`, then run the pipeline for it. The 
 
 ## Data used (Datos utilizados)
 
-Everything the API serves comes from public archives. Nothing is simulated: where a measurement is impossible (e.g. saturated stars), the response says so (`null` + `note`, `saturated`, `spectrum_message`).
+Everything the API serves comes from public archives. Nothing is simulated: where a measurement is impossible (e.g. saturated stars), the response says so (`null` + `note`, `saturated`, `spectrum_message`). The same citations, word for word, come from `GET /credits` ([`app/core/credits.py`](app/core/credits.py)); `tests/test_credits.py` checks that the two agree. `/sky-patch` and `/spectrum` responses carry the first four in `data_credits`.
 
-| Source | What we use it for | Access |
+| Source | What we use it for | Access and citation |
 |---|---|---|
-| **SPHEREx** (NASA/JPL/Caltech), served by **IRSA/IPAC** | All images, difference images, spectra and light curves: Level 2 Spectral Images (MEF: IMAGE, FLAGS, VARIANCE, ZODI, WCS-WAVE), downloaded as server-side cutouts | IRSA SIA2 `https://irsa.ipac.caltech.edu/SIA`, collections **`spherex_dr1`** (DR1, DOI [10.26131/IRSA678](https://www.ipac.caltech.edu/doi/10.26131/IRSA678)) and **`spherex_qr3`** (QR3, DOI [10.26131/IRSA662](https://www.ipac.caltech.edu/doi/10.26131/IRSA662)); deep fields `spherex_dr1_deep` / `spherex_qr3_deep` only as a fallback. [SPHEREx at IRSA](https://irsa.ipac.caltech.edu/Missions/spherex.html), [Archive user guide](https://caltech-ipac.github.io/spherex-archive-documentation/), [tutorials](https://caltech-ipac.github.io/irsa-tutorials/spherex-intro/) |
-| **Gaia DR3** (ESA) | Reference positions and proper motions of Barnard's Star, Epsilon Indi B, RW Aurigae and R Draconis (`app/core/targets.py`), propagated to each SPHEREx exposure date. Also the source of the correct answers in the "spot the mover" game | [Gaia archive](https://gea.esac.esa.int/archive/); Gaia Collaboration, Vallenari et al. 2023, A&A 674, A1 |
-| **WISE** (NASA) | Reference position of WISE 0855−0714 (from its WISE designation, epoch ~2010.4); its proper motion is from Luhman & Esplin (2016, AJ 152, 78) | [WISE at IRSA](https://irsa.ipac.caltech.edu/Missions/wise.html) |
-| **SIMBAD** (CDS) | Catalogue lookups for "what am I looking at?" and for the chat, labelled as *catalogued in SIMBAD*, not as detected by SPHEREx. Cited as Wenger et al. 2000, A&AS 143, 9 (DOI [10.1051/aas:2000332](https://doi.org/10.1051/aas:2000332)) | [SIMBAD](https://simbad.cds.unistra.fr/simbad/), TAP service, with the Harvard mirror as an alternative |
+| **SPHEREx (NASA/JPL/Caltech), served by IRSA/IPAC**: SPHEREx Data Release 1 (`spherex_dr1`) and Quick Release 3 (`spherex_qr3`) | All images, difference images, spectra and light curves: Level 2 Spectral Images (MEF), downloaded as server-side cutouts | IRSA SIA2 https://irsa.ipac.caltech.edu/SIA; DR1 DOI [10.26131/IRSA678](https://www.ipac.caltech.edu/doi/10.26131/IRSA678), QR3 DOI [10.26131/IRSA662](https://www.ipac.caltech.edu/doi/10.26131/IRSA662); deep fields `spherex_dr1_deep` / `spherex_qr3_deep` only as a fallback. [SPHEREx at IRSA](https://irsa.ipac.caltech.edu/Missions/spherex.html), [archive user guide](https://caltech-ipac.github.io/spherex-archive-documentation/) |
+| **Gaia DR3 (ESA)** | Reference positions and proper motions of Barnard's Star, Epsilon Indi B, RW Aurigae and R Draconis, propagated to each SPHEREx exposure date; in the spot-the-mover game, the candidate stars and the correct answer of every round | [Gaia archive](https://gea.esac.esa.int/archive/); Gaia Collaboration, Vallenari et al. 2023, A&A 674, A1. The game's pool builder queries the ARI Heidelberg mirror, https://gaia.ari.uni-heidelberg.de/tap |
+| **WISE (NASA)** | Reference position of WISE 0855-0714 (from its WISE designation, epoch ~2010.4); proper motion from Luhman & Esplin (2016, AJ 152, 78) | [WISE at IRSA](https://irsa.ipac.caltech.edu/Missions/wise.html); Luhman & Esplin (2016, AJ 152, 78) |
+| **SIMBAD astronomical database, CDS, Strasbourg Astronomical Observatory, France** | Catalogued objects (identifier, type, position, proper motion, magnitude, bibliographic references) marked on the SPHEREx images, with positions propagated to the observation date; the star names of the spot-the-mover game's WISE vs SPHEREx rounds. Labelled as *catalogued in SIMBAD*, never as detected by SPHEREx | [SIMBAD](https://simbad.cds.unistra.fr/simbad/), TAP service https://simbad.cds.unistra.fr/simbad/sim-tap (the Harvard mirror is an alternative); Wenger et al. 2000, A&AS 143, 9, DOI [10.1051/aas:2000332](https://doi.org/10.1051/aas:2000332) |
+| **SPHEREx DR1 HiPS** (SPHEREx (NASA/JPL/Caltech), served by IRSA/IPAC): SPHEREx Data Release 1 HiPS spectral cube (hips5_cube), AWS Open Data bucket nasa-irsa-spherex | SPHEREx images of the spot-the-mover game's WISE vs SPHEREx rounds: the 1.1-2.4 um channels of the DR1 HiPS cube, read by HTTP Range requests | https://nasa-irsa-spherex.s3.amazonaws.com/dr1/hips5_cube/ ([IRSA cloud access](https://irsa.ipac.caltech.edu/cloud_access/)); SPHEREx DR1 DOI [10.26131/IRSA678](https://www.ipac.caltech.edu/doi/10.26131/IRSA678) |
+| **unWISE** (unWISE / NASA/JPL-Caltech / D. Lang (Perimeter Institute)) | WISE (2010) images of the spot-the-mover game's WISE vs SPHEREx rounds: W1 (3.4 um) cutouts | [unWISE](https://unwise.me/), cutout service https://unwise.me/cutout_fits; Lang 2014, AJ 147, 108. Licence CC BY-NC-SA 4.0, attribution required: "unWISE / NASA/JPL-Caltech / D. Lang (Perimeter Institute)" |
 
 SPHEREx acknowledgement, as requested by IRSA ([source](https://irsa.ipac.caltech.edu/Missions/spherex.html)):
 
 > This publication makes use of data products from the Spectro-Photometer for the History of the Universe, Epoch of Reionization and Ices Explorer (SPHEREx), which is a joint project of the Jet Propulsion Laboratory and the California Institute of Technology, and is funded by the National Aeronautics and Space Administration.
 
+SIMBAD acknowledgement: "This research has made use of the SIMBAD database, operated at CDS, Strasbourg, France".
+
 Canonical SPHEREx papers listed by IRSA: Bock et al. (2026, mission), Akeson et al. (2026, pipeline), Crill et al. (2025, sky simulator), Korngut et al. (2026, instrument & calibration).
 
-Software: FastAPI, Astropy, Astroquery/PyVO, reproject, NumPy, OpenCV, Matplotlib, Pillow.
+Software: FastAPI, Astropy, Astroquery/PyVO, reproject, astropy-healpix, NumPy, SciPy, OpenCV, Matplotlib, Pillow.
 
 ## About this project
 

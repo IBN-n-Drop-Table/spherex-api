@@ -107,3 +107,19 @@ Gaia y el sitio de la otra fecha debe estar vacío. No se usa el detector de ano
   `https://irsa.ipac.caltech.edu/ibe/data/spherex/` y `?center=RA,DEC&size=DEG`
   ([acceso a datos SPHEREx](https://irsa.ipac.caltech.edu/spherex-archive-documentation/spherex-data-access/)).
   Mismo servidor que SIA.
+
+## Créditos de los datos del pool
+
+Los mismos textos que `GET /credits` y la sección "Data used" del README
+([`app/core/credits.py`](../app/core/credits.py)):
+
+- **SPHEREx DR1 HiPS** (SPHEREx, NASA/JPL/Caltech, servido por IRSA/IPAC): cubo espectral HiPS de
+  DR1 en el bucket de AWS Open Data `nasa-irsa-spherex`; DOI de SPHEREx DR1
+  [10.26131/IRSA678](https://www.ipac.caltech.edu/doi/10.26131/IRSA678). Agradecimiento de SPHEREx
+  en el README.
+- **unWISE**: "unWISE / NASA/JPL-Caltech / D. Lang (Perimeter Institute)", Lang 2014, AJ 147, 108,
+  [unwise.me](https://unwise.me/). Licencia CC BY-NC-SA 4.0 (uso no comercial, atribución obligatoria).
+- **Gaia DR3** (ESA): Gaia Collaboration, Vallenari et al. 2023, A&A 674, A1. Candidatas y respuesta
+  correcta de cada ronda; consultado en el mirror del ARI Heidelberg.
+- **SIMBAD** (CDS, Estrasburgo): Wenger et al. 2000, A&AS 143, 9, DOI
+  [10.1051/aas:2000332](https://doi.org/10.1051/aas:2000332). Nombres de las estrellas de las rondas.
