@@ -392,7 +392,7 @@ Valores reales de `GET /sky-patch?target=BARNARDS_STAR` para esos campos:
     "variance": null,
     "note": "No valid photometry: the core saturates SPHEREx (OVERFLOW/BLOOM)"
   },
-  "difference_imaging (sin anomalías)": {
+  "difference_imaging (no anomalies)": {
     "epoch_a": "2025_M12",
     "epoch_b": "2025_M0",
     "image_format": "png",
