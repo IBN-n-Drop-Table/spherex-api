@@ -143,6 +143,28 @@ Respuesta real (sin claves de IA configuradas, por eso `provider: "canned"`):
 
 El endpoint no devuelve 5xx por culpa de los proveedores de IA: sin claves, con ambos caídos o con el tope diario agotado contesta con `fallback: true`. Los errores posibles son 422 (entrada) y 429 (demasiadas peticiones).
 
+**Datos del catálogo SIMBAD en el chat (campo opcional `sources`)**
+
+Si el contexto trae uno de los 5 objetos, el servidor añade al prompt un bloque `<simbad_catalog>` con datos **ya guardados** en `app/data/simbad/` (el chat nunca consulta SIMBAD en vivo): el objeto (identificador, tipo, referencias bibliográficas, magnitud) y hasta 6 objetos catalogados cercanos, más citados primero, en 2.500 caracteres como máximo. El modelo debe citar "according to SIMBAD" y no presentar nada como detección de SPHEREx.
+
+- `sources` es **opcional**: vale `["SIMBAD"]` cuando se usó ese bloque (también en respuestas en caché y en la predefinida de abajo) y **la clave no existe** en caso contrario. El resto del contrato no cambia, y las `cautions` siguen yendo aparte.
+- Sin claves de IA, la pregunta "What else is near this object?" (o con "nearby", "near this", "around it") se responde desde los mismos datos, con `provider: "canned"`, `fallback: true` y `sources: ["SIMBAD"]`. No está entre las 4 sugerencias: el frontend puede ofrecerla como texto fijo.
+- Los 4 planetas de Barnard comparten posición con la estrella; el bloque los presenta como planetas catalogados, no como objetos aparte. Son entradas de catálogo, no detecciones.
+
+Respuesta real (sin claves de IA, `context.target = "BARNARDS_STAR"`):
+
+```json
+{
+  "answer": "According to SIMBAD, NAME Barnard's star is catalogued as: BY Dra Variable. SIMBAD also lists planets catalogued around this star (NAME Barnard's Star b, NAME Barnard's Star c, NAME Barnard's Star d, NAME Barnard's Star e); they are planets, not separate objects. Other catalogued objects in the same patch of sky, most-cited first: ATO J269.3920+04.7625 (Eclipsing Binary); GAT 771 (Star); GES J17574778+0443542 (Star); Gaia DR3 4472837804589123072 (White Dwarf Candidate). These are catalogue entries, not SPHEREx detections.",
+  "provider": "canned",
+  "cached": false,
+  "fallback": true,
+  "disclaimer": "AI assistant: it can make mistakes. Any finding requires human verification.",
+  "cautions": [],
+  "sources": ["SIMBAD"]
+}
+```
+
 **`GET /chat/suggestions?target=WISE_0855`**: `target` acepta clave o nombre (`WISE_0855`, `wise-0855`, `Barnard's Star`). Sin `target` o con uno desconocido devuelve la lista genérica y `"target": null`. Respuesta real:
 
 ```json
