@@ -111,7 +111,7 @@ def test_http_transport_maps_every_failure_to_unavailable(monkeypatch):
     monkeypatch.setattr(sb.httpx, "post", ok)
     assert sb.http_transport("https://x/sync", "SELECT 1", 5.0) == {"metadata": [], "data": []}
     assert seen["data"]["FORMAT"] == "json" and seen["data"]["LANG"] == "ADQL" and seen["data"]["QUERY"] == "SELECT 1"
-    assert seen["timeout"].read == 5.0
+    assert seen["timeout"].connect + seen["timeout"].read == 5.0
 
 
 def test_live_query_then_cache_hit_without_a_second_call():

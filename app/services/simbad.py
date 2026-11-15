@@ -146,7 +146,8 @@ def _snippet(response: Any) -> str:
 
 
 def http_transport(tap_url: str, adql: str, timeout_s: float) -> Any:
-    timeout = httpx.Timeout(timeout_s, connect=min(2.0, timeout_s))
+    connect = min(2.0, timeout_s / 2)  # connect + read add up to `timeout_s`: the whole budget, not per phase
+    timeout = httpx.Timeout(timeout_s, connect=connect, read=timeout_s - connect)
     try:
         resp = httpx.post(
             tap_url, timeout=timeout, headers={"User-Agent": "spherex-citizen-science-api"},
