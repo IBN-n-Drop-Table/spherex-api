@@ -8,7 +8,7 @@ Rows are kept in J2000 as SIMBAD gives them: the epoch and the projection depend
 not on the query, so they are applied per request (app/services/catalog_objects.py).
 
 Columns used (all confirmed in the VOSI /tables listing of the SIMBAD Harvard mirror on 2026-11-15):
-basic.{main_id, otype, ra, dec, pmra, pmdec, nbref, oid}, otypedef.{otype, label},
+basic.{main_id, otype, ra, dec, pmra, pmdec, nbref, oid}, otypedef.{otype, description},
 allfluxes.{oidref, V, G, R, J, H, K}. NOT verified against a live query (the service was unreachable):
 the exact JSON layout of a TAP answer, the join semantics, and that `ORDER BY` + `TOP` behave as written.
 """
@@ -92,13 +92,13 @@ def build_adql(ra_deg: float, dec_deg: float, radius_deg: float, type_filter: Ty
         where.append(extra)
     flux_cols = ", ".join(f"f.{band}" for band in MAG_BANDS)
     return (
-        f"SELECT TOP {int(limit)} b.main_id, b.otype, o.label AS otype_label, b.ra, b.dec, "
+        f"SELECT TOP {int(limit)} b.main_id, b.otype, o.description AS otype_label, b.ra, b.dec, "
         f"b.pmra, b.pmdec, b.nbref, {flux_cols}\n"
         "FROM basic AS b\n"
         "LEFT JOIN otypedef AS o ON b.otype = o.otype\n"
         "LEFT JOIN allfluxes AS f ON b.oid = f.oidref\n"
         f"WHERE {' AND '.join(where)}\n"
-        "ORDER BY b.nbref DESC"
+        "ORDER BY nbref DESC"
     )
 
 
@@ -135,6 +135,16 @@ def parse_tap_json(payload: Any) -> list[SimbadRow]:
 Transport = Callable[[str, str, float], Any]  # (tap_url, adql, timeout_s) -> parsed JSON
 
 
+def _snippet(response: Any) -> str:
+    """Start of a TAP error body (a VOTable with the reason), for the log and the script output."""
+    try:
+        text = response.text
+        text = text[text.find("<INFO"):] if "<INFO" in text else text  # skip the VOTable header
+        return " ".join(text.split())[:600]
+    except Exception:  # noqa: BLE001 - diagnostics must never raise
+        return "no body"
+
+
 def http_transport(tap_url: str, adql: str, timeout_s: float) -> Any:
     timeout = httpx.Timeout(timeout_s, connect=min(2.0, timeout_s))
     try:
@@ -145,7 +155,9 @@ def http_transport(tap_url: str, adql: str, timeout_s: float) -> Any:
         resp.raise_for_status()
         return resp.json()
     except (httpx.HTTPError, ValueError) as exc:  # timeouts, 4xx/5xx, a non-JSON body
-        raise SimbadUnavailable(f"SIMBAD query failed: {type(exc).__name__}") from exc
+        response = getattr(exc, "response", None)
+        status = f" (HTTP {response.status_code}: {_snippet(response)})" if response is not None else ""
+        raise SimbadUnavailable(f"SIMBAD query failed: {type(exc).__name__}{status}") from exc
 
 
 class TTLCache:

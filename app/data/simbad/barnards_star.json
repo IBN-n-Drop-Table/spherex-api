@@ -1,0 +1,123 @@
+{
+ "generated": "2026-11-15T00:00:42Z",
+ "tap_url": "https://simbad.cfa.harvard.edu/simbad/sim-tap/sync",
+ "target": "BARNARDS_STAR",
+ "query": {
+  "ra": 269.446,
+  "dec": 4.767,
+  "radius_deg": 0.0605,
+  "years_since_j2000_max": 26.75,
+  "type_filter": "all",
+  "adql": "SELECT TOP 200 b.main_id, b.otype, o.description AS otype_label, b.ra, b.dec, b.pmra, b.pmdec, b.nbref, f.V, f.G, f.R, f.J, f.H, f.K\nFROM basic AS b\nLEFT JOIN otypedef AS o ON b.otype = o.otype\nLEFT JOIN allfluxes AS f ON b.oid = f.oidref\nWHERE CONTAINS(POINT('ICRS', b.ra, b.dec), CIRCLE('ICRS', 269.446000, 4.767000, 0.142236)) = 1 AND (CONTAINS(POINT('ICRS', b.ra, b.dec), CIRCLE('ICRS', 269.446000, 4.767000, 0.060500)) = 1 OR DISTANCE(POINT('ICRS', b.ra, b.dec), POINT('ICRS', 269.446000, 4.767000)) <= 0.060500 + SQRT(POWER(b.pmra, 2) + POWER(b.pmdec, 2)) / 3600000.0 * 26.7500)\nORDER BY nbref DESC"
+ },
+ "objects": [
+  {
+   "main_id": "NAME Barnard's star",
+   "otype": "BY*",
+   "otype_label": "BY Dra Variable",
+   "ra": 269.4520769586187,
+   "dec": 4.693364966576667,
+   "pmra": -801.551,
+   "pmdec": 10362.394,
+   "nbref": 924,
+   "mag": 9.511,
+   "mag_band": "V"
+  },
+  {
+   "main_id": "NAME Barnard's Star b",
+   "otype": "Pl",
+   "otype_label": "Extra-solar Planet",
+   "ra": 269.4520769586187,
+   "dec": 4.693364966576667,
+   "pmra": -801.551,
+   "pmdec": 10362.394,
+   "nbref": 34,
+   "mag": null,
+   "mag_band": null
+  },
+  {
+   "main_id": "GES J17574778+0443542",
+   "otype": "*",
+   "otype_label": "Star",
+   "ra": 269.4490799999999,
+   "dec": 4.731720000000001,
+   "pmra": null,
+   "pmdec": null,
+   "nbref": 3,
+   "mag": null,
+   "mag_band": null
+  },
+  {
+   "main_id": "NAME Barnard's Star c",
+   "otype": "Pl",
+   "otype_label": "Extra-solar Planet",
+   "ra": 269.4520769586187,
+   "dec": 4.693364966576667,
+   "pmra": -801.551,
+   "pmdec": 10362.394,
+   "nbref": 3,
+   "mag": null,
+   "mag_band": null
+  },
+  {
+   "main_id": "Gaia DR3 4472837804589123072",
+   "otype": "WD?",
+   "otype_label": "White Dwarf Candidate",
+   "ra": 269.46758888335,
+   "dec": 4.82033568746,
+   "pmra": -3.925,
+   "pmdec": -6.261,
+   "nbref": 3,
+   "mag": 19.251505,
+   "mag_band": "G"
+  },
+  {
+   "main_id": "NAME Barnard's Star d",
+   "otype": "Pl",
+   "otype_label": "Extra-solar Planet",
+   "ra": 269.4520769586187,
+   "dec": 4.693364966576667,
+   "pmra": -801.551,
+   "pmdec": 10362.394,
+   "nbref": 3,
+   "mag": null,
+   "mag_band": null
+  },
+  {
+   "main_id": "ATO J269.3920+04.7625",
+   "otype": "EB*",
+   "otype_label": "Eclipsing Binary",
+   "ra": 269.3920595325521,
+   "dec": 4.7625682368372235,
+   "pmra": 2.243,
+   "pmdec": 1.772,
+   "nbref": 3,
+   "mag": 16.507668,
+   "mag_band": "G"
+  },
+  {
+   "main_id": "NAME Barnard's Star e",
+   "otype": "Pl",
+   "otype_label": "Extra-solar Planet",
+   "ra": 269.4520769586187,
+   "dec": 4.693364966576667,
+   "pmra": -801.551,
+   "pmdec": 10362.394,
+   "nbref": 3,
+   "mag": null,
+   "mag_band": null
+  },
+  {
+   "main_id": "GAT 771",
+   "otype": "*",
+   "otype_label": "Star",
+   "ra": 269.44389907959,
+   "dec": 4.79628913665,
+   "pmra": -6.159,
+   "pmdec": 0.513,
+   "nbref": 3,
+   "mag": 12.21,
+   "mag_band": "V"
+  }
+ ]
+}

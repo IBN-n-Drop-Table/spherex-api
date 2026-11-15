@@ -1,4 +1,6 @@
-"""Precomputed SIMBAD rows for the 5 Golden Path targets (app/data/simbad_<target>.json).
+"""Precomputed SIMBAD rows for the 5 Golden Path targets (app/data/simbad/<target>.json).
+
+A subdirectory on purpose: other code and tests glob app/data/*.json for the sky-patch files.
 
 Written by scripts/generate_simbad_golden.py. The files hold the unfiltered, J2000 rows of
 the cone search around each patch, so every type_filter, max_n and epoch is served from them.
@@ -17,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 def precomputed_path(key: str, data_dir: Path | None = None) -> Path:
-    return (data_dir or settings.data_dir) / f"simbad_{key.lower()}.json"
+    return (data_dir or settings.data_dir) / "simbad" / f"{key.lower()}.json"
 
 
 def load_precomputed(key: str, data_dir: Path | None = None) -> list[SimbadRow] | None:

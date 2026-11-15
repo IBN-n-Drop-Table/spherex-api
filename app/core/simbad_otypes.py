@@ -1,22 +1,25 @@
 """SIMBAD object-type groups for the `type_filter` parameter of /catalog-objects.
 
-VERIFICATION STATUS (read before trusting these lists). Written 2026-11-15, while CDS
-was reporting a security incident and its documentation pages (guide/otypes.htx) answered
-404/403, so the official otype list could NOT be read. The codes below are from the
-author's knowledge of SIMBAD's classification and are UNVERIFIED against the official list.
-`scripts/generate_simbad_golden.py --check-otypes` compares them with the service's own
-`otypedef` table (a table whose `otype` column was confirmed on the Harvard mirror's
-VOSI /tables listing) and reports any code SIMBAD does not know. Run it once SIMBAD is back.
-
-Design choices:
+VERIFIED 2026-11-15: every code below exists in SIMBAD's `otypedef` table, read from the live service
+(through the Harvard mirror, because CDS's own documentation pages were down): tests/simbad_otypes_known.txt
+holds the 226 official codes and tests/test_catalog_objects.py compares. The hierarchy (`otypedef.path`)
+was used to choose the groups. `scripts/generate_simbad_golden.py --check-otypes` repeats the check.
+What is a judgement call, not a fact, is WHICH codes belong to a group.
 
 * `all`: no filter.
-* `no_common_stars`: everything EXCEPT the most generic stellar types, so the overlay is not
-  a wall of anonymous stars. It is an exclusion list on purpose: an unknown or rare type is
-  shown rather than silently hidden (Barnard's Star, brown dwarfs and young stars stay in).
-* `ir_galaxies`: galaxies and active nuclei, the extragalactic sources that SPHEREx sees in
-  the infrared. An inclusion list. "IR" in the name is the audience (infrared mission), not a
-  selection by infrared flux: that would need photometry, which this version does not filter on.
+* `no_common_stars`: everything EXCEPT generic stellar types, so the overlay is not a wall of anonymous
+  stars. An exclusion list on purpose: a rare or unknown type is shown rather than silently hidden
+  (Barnard's Star is `BY*`, brown dwarfs `BD*`, young stars `TT*`/`Or*`: all stay in).
+  Excluded: `*` Star, `**` Double or Multiple Star, `MS*` Main Sequence Star, `V*` Variable Star,
+  `SB*` Spectroscopic Binary.
+* `ir_galaxies`: individual galaxies and active nuclei, the extragalactic sources SPHEREx sees in the
+  infrared. An inclusion list of confirmed (not `?` candidate) types under `G` in the hierarchy. "IR" is
+  the audience (an infrared mission), not a selection by infrared flux: that would need photometry,
+  which this version does not filter on. Pairs, groups and clusters of galaxies are left out (one marker
+  would stand for several objects).
+
+Known quirk: `Pl` (exoplanet) rows share the position of their host star, so on a system like Barnard's
+Star several markers land on the same pixel. They are in `all` and `no_common_stars` as SIMBAD has them.
 """
 
 from __future__ import annotations
@@ -26,14 +29,13 @@ from typing import Literal
 
 TypeFilter = Literal["all", "no_common_stars", "ir_galaxies"]
 
-# Plain star, double/multiple star and the generic "in a binary/cluster" star flags.
-COMMON_STAR_OTYPES: tuple[str, ...] = ("*", "**", "*iC", "*iN", "*iA", "*i*")
+# Generic stellar types: plain, multiple, main-sequence, generic variable, spectroscopic binary.
+COMMON_STAR_OTYPES: tuple[str, ...] = ("*", "**", "MS*", "V*", "SB*")
 
-# Galaxies (and their active nuclei) as individual objects. Pairs, groups and clusters of
-# galaxies are deliberately not included: one marker would cover several objects.
+# Individual galaxies and active nuclei (all under `G` in SIMBAD's hierarchy).
 IR_GALAXY_OTYPES: tuple[str, ...] = (
-    "G", "LSB", "bCG", "SBG", "H2G", "EmG", "rG", "IG", "PaG",
-    "AGN", "LIN", "SyG", "Sy1", "Sy2", "Bla", "BLL", "QSO",
+    "G", "GiC", "BiC", "GiG", "GiP", "LSB", "bCG", "SBG", "H2G", "EmG", "rG",
+    "AGN", "LIN", "SyG", "Sy1", "Sy2", "QSO", "Bla", "BLL",
 )
 
 _CODE = re.compile(r"^[A-Za-z0-9*?+>_-]+$")  # codes go into ADQL: nothing else may pass

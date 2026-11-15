@@ -46,9 +46,9 @@ def service(transport, **kw):
 def test_adql_uses_geometric_containment_and_the_confirmed_columns():
     q = build_adql(269.454, 4.668, 0.0589, "all", 200)
     assert "CONTAINS(POINT('ICRS', b.ra, b.dec), CIRCLE('ICRS', 269.454000, 4.668000, 0.058900)) = 1" in q
-    assert q.startswith("SELECT TOP 200 b.main_id, b.otype, o.label AS otype_label, b.ra, b.dec, b.pmra, b.pmdec, b.nbref")
+    assert q.startswith("SELECT TOP 200 b.main_id, b.otype, o.description AS otype_label, b.ra, b.dec, b.pmra, b.pmdec, b.nbref")
     assert "FROM basic AS b" in q and "allfluxes AS f ON b.oid = f.oidref" in q
-    assert q.endswith("ORDER BY b.nbref DESC")
+    assert q.endswith("ORDER BY nbref DESC")
     assert "NOT IN" not in q
     assert "b.otype NOT IN" in build_adql(1, 1, 0.1, "no_common_stars", 5)
     assert "b.otype IN ('G'" in build_adql(1, 1, 0.1, "ir_galaxies", 5)
@@ -188,7 +188,8 @@ def test_precomputed_fallback_is_filtered_and_empty_when_there_is_none():
 def test_precomputed_file_loading(tmp_path):
     assert load_precomputed("BARNARDS_STAR", tmp_path) is None
     path = precomputed_path("BARNARDS_STAR", tmp_path)
-    assert path.name == "simbad_barnards_star.json"
+    assert path.parent.name == "simbad" and path.name == "barnards_star.json"
+    path.parent.mkdir()
     row = {"main_id": "* 699", "otype": "Flare*", "otype_label": "Flare Star", "ra": 269.45, "dec": 4.67,
            "pmra": -802.8, "pmdec": 10362.5, "nbref": 1500, "mag": 9.5, "mag_band": "V"}
     path.write_text(json.dumps({"objects": [row]}), "utf-8")
@@ -205,7 +206,7 @@ def test_cone_is_widened_for_fast_movers_and_kept_exact_for_each_row():
     assert f"CIRCLE('ICRS', 269.446000, 4.767000, {wide:.6f})) = 1" in q  # ~0.138 deg: Barnard's J2000 spot is in it
     assert "DISTANCE(POINT('ICRS', b.ra, b.dec), POINT('ICRS', 269.446000, 4.767000)) <= 0.058900 + " in q
     assert "SQRT(POWER(b.pmra, 2) + POWER(b.pmdec, 2)) / 3600000.0 * 25.7500" in q
-    assert q.index("CONTAINS") < q.index("OR DISTANCE") and q.endswith("ORDER BY b.nbref DESC")
+    assert q.index("CONTAINS") < q.index("OR DISTANCE") and q.endswith("ORDER BY nbref DESC")
 
 
 def test_years_are_rounded_up_to_a_quarter_and_are_part_of_the_cache_key():

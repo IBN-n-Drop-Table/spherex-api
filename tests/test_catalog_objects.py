@@ -279,3 +279,65 @@ def test_simbad_credit_is_written_the_same_way_in_the_readme():
     data_used = README.split("## Data used", 1)[1].split("\n## ", 1)[0]
     for key in ("doi", "url", "citation", "access", "used_for"):
         assert SIMBAD_CREDIT[key] in data_used, key
+
+
+# --------------------------------------------------------------------------- #
+# Verified against SIMBAD (read through its Harvard mirror on 2026-11-15)
+# --------------------------------------------------------------------------- #
+
+
+def test_every_otype_code_in_our_groups_exists_in_simbad():
+    from app.core.simbad_otypes import COMMON_STAR_OTYPES, IR_GALAXY_OTYPES
+    known = {line for line in (Path(__file__).parent / "simbad_otypes_known.txt").read_text().splitlines()
+             if line and not line.startswith("#")}
+    assert len(known) == 226
+    assert not [c for c in COMMON_STAR_OTYPES + IR_GALAXY_OTYPES if c not in known]
+
+
+def real_row(key: str, main_id: str):
+    from app.services.simbad_precomputed import load_precomputed
+    return next(r for r in load_precomputed(key) if r.main_id == main_id)
+
+
+@pytest.mark.parametrize("key, main_id, png_stem, epochs", [
+    ("BARNARDS_STAR", "NAME Barnard's star", "barnardsstar", ("2025_M0", "2025_M7", "2025_M12")),
+    ("EPSILON_INDI_B", "* eps Ind B", "epsilonindib", ("2025_M0", "2025_M5", "2025_M12", "2025_M17")),
+])
+def test_real_simbad_rows_land_on_the_light_of_the_real_images(key, main_id, png_stem, epochs):
+    """The rows in app/data/simbad/*.json are real SIMBAD answers (J2000 position + SIMBAD's own proper motion)."""
+    row = real_row(key, main_id)
+    assert row.pmra is not None and row.pmdec is not None
+    for idx, epoch_id in enumerate(epochs, start=1):
+        geo = image_geometry(key, None, None, 5.0, epoch_id)
+        o = place(row, geo)
+        assert o is not None and o.proper_motion_applied
+        png = STATIC / "static" / "golden_path" / f"{png_stem}_epoch{idx}_rgb.png"
+        assert math.dist((o.x, o.y), centroid(png, o.x, o.y)) < 1.5, (key, epoch_id)
+
+
+def test_real_barnard_row_agrees_with_the_games_gaia_prediction_and_fails_without_proper_motion():
+    row = real_row("BARNARDS_STAR", "NAME Barnard's star")
+    raw = load_raw("barnards_star.json")
+    for e in raw["timelapse_epochs"]:
+        geo = image_geometry("BARNARDS_STAR", None, None, 5.0, e["epoch_id"])
+        when = datetime.fromisoformat(e["date"].replace("Z", "+00:00"))
+        expected = world_to_png(raw["patch"]["wcs"], 600, *position_at(CATALOG["BARNARDS_STAR"], when))
+        o = place(row, geo)
+        assert math.dist((o.x, o.y), expected) < 1.5  # the game test's criterion
+        still = SimbadRow(**{**row.__dict__, "pmra": None, "pmdec": None})
+        assert place(still, geo) is None  # without proper motion it is not even in the image (about 230 px off)
+
+
+def test_precomputed_files_serve_the_endpoint_when_simbad_is_down():
+    from app.services.simbad_precomputed import load_precomputed
+    t = FakeTransport(error=SimbadUnavailable("down"))
+    c, _ = make_client(t, precomputed=load_precomputed)
+    for key in CATALOG:
+        body = c.get(URL, params={"target": key}).json()
+        assert body["source"] == "precomputed" and body["fallback_reason"] == "simbad_unavailable", key
+        assert body["objects"], key
+    barnard = c.get(URL, params={"target": "BARNARDS_STAR", "type_filter": "no_common_stars"}).json()
+    top = barnard["objects"][0]
+    assert top["id"] == "NAME Barnard's star" and top["proper_motion_applied"] is True
+    assert abs(top["x"] - 300) < 1.5 and abs(top["y"] - 300) < 1.5
+    assert c.get(URL, params={"target": "WISE_0855", "type_filter": "ir_galaxies"}).json()["objects"][0]["id"] == "3C 209"

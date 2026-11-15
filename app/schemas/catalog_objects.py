@@ -20,7 +20,7 @@ class _Strict(BaseModel):
 class CatalogObject(_Strict):
     id: str = Field(description="SIMBAD main identifier", examples=["* 699"])
     otype: str = Field(description="SIMBAD object type code", examples=["Flare*"])
-    otype_label: str = Field(description="Readable type, as SIMBAD labels it (or the code)", examples=["Flare Star"])
+    otype_label: str = Field(description="Readable type, SIMBAD's own description of the type code (or the code itself)", examples=["Flare Star"])
     x: float = Field(description="Image x, continuous, 0 = left edge, +x right, pixel i spans [i, i+1)")
     y: float = Field(description="Image y, continuous, 0 = TOP edge, +y down (PNG convention, not FITS)")
     mag: float | None = Field(description="Magnitude in `mag_band`, null if SIMBAD has none")

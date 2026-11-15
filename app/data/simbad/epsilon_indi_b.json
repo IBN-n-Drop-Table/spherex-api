@@ -1,0 +1,75 @@
+{
+ "generated": "2026-11-15T00:00:43Z",
+ "tap_url": "https://simbad.cfa.harvard.edu/simbad/sim-tap/sync",
+ "target": "EPSILON_INDI_B",
+ "query": {
+  "ra": 331.095,
+  "dec": -56.8,
+  "radius_deg": 0.0605,
+  "years_since_j2000_max": 26.75,
+  "type_filter": "all",
+  "adql": "SELECT TOP 200 b.main_id, b.otype, o.description AS otype_label, b.ra, b.dec, b.pmra, b.pmdec, b.nbref, f.V, f.G, f.R, f.J, f.H, f.K\nFROM basic AS b\nLEFT JOIN otypedef AS o ON b.otype = o.otype\nLEFT JOIN allfluxes AS f ON b.oid = f.oidref\nWHERE CONTAINS(POINT('ICRS', b.ra, b.dec), CIRCLE('ICRS', 331.095000, -56.800000, 0.142236)) = 1 AND (CONTAINS(POINT('ICRS', b.ra, b.dec), CIRCLE('ICRS', 331.095000, -56.800000, 0.060500)) = 1 OR DISTANCE(POINT('ICRS', b.ra, b.dec), POINT('ICRS', 331.095000, -56.800000)) <= 0.060500 + SQRT(POWER(b.pmra, 2) + POWER(b.pmdec, 2)) / 3600000.0 * 26.7500)\nORDER BY nbref DESC"
+ },
+ "objects": [
+  {
+   "main_id": "* eps Ind B",
+   "otype": "BD*",
+   "otype_label": "Brown Dwarf",
+   "ra": 331.04414658852124,
+   "dec": -56.782844195116105,
+   "pmra": 3981.977,
+   "pmdec": -2466.832,
+   "nbref": 179,
+   "mag": 24.12,
+   "mag_band": "V"
+  },
+  {
+   "main_id": "1WGA J2203.9-5647",
+   "otype": "X",
+   "otype_label": "X-ray Source",
+   "ra": 330.99333333333334,
+   "dec": -56.78722222222222,
+   "pmra": null,
+   "pmdec": null,
+   "nbref": 3,
+   "mag": null,
+   "mag_band": null
+  },
+  {
+   "main_id": "2dFGRS TGS812Z622",
+   "otype": "G",
+   "otype_label": "Galaxy",
+   "ra": 331.151460737048,
+   "dec": -56.81761903488601,
+   "pmra": null,
+   "pmdec": null,
+   "nbref": 3,
+   "mag": 16.425,
+   "mag_band": "R"
+  },
+  {
+   "main_id": "Gaia DR3 6412596287024000896",
+   "otype": "RR*",
+   "otype_label": "RR Lyrae Variable",
+   "ra": 331.0248530206104,
+   "dec": -56.76733191140972,
+   "pmra": 6.847,
+   "pmdec": -14.581,
+   "nbref": 1,
+   "mag": 20.846548,
+   "mag_band": "G"
+  },
+  {
+   "main_id": "2dFGRS TGS812Z611",
+   "otype": "G",
+   "otype_label": "Galaxy",
+   "ra": 331.1915833333333,
+   "dec": -56.78113888888889,
+   "pmra": null,
+   "pmdec": null,
+   "nbref": 1,
+   "mag": 17.15,
+   "mag_band": "R"
+  }
+ ]
+}
