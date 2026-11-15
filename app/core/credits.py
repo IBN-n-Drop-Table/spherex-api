@@ -86,9 +86,11 @@ SIMBAD_CREDIT: dict = {
 SIMBAD_ACKNOWLEDGEMENT = "This research has made use of the SIMBAD database, operated at CDS, Strasbourg, France"
 
 # Data used only by the spot-the-mover game's WISE vs SPHEREx round pool (scripts/build_game_pool.py),
-# so kept out of DATA_CREDITS too. unWISE: citation and required attribution as written on
-# https://unwise.me/ (checked 2026-11-15); licence CC BY-NC-SA 4.0. The HiPS cube is part of
-# SPHEREx DR1, whose release DOI it carries.
+# so kept out of DATA_CREDITS too. The HiPS cube is part of SPHEREx DR1, whose release DOI it carries.
+# unWISE, as checked on https://unwise.me/ on 2026-11-15: the site asks users to cite Lang 2014 (AJ 147,
+# 108) and states no licence for the coadd data. Its "CC BY-NC-SA 4.0 / Required attribution" lines
+# caption only the three showcase images of its home page, so no licence is claimed here; their
+# attribution line is used as the source name, as a courtesy.
 GAME_DATA_CREDITS: list[dict] = [
     {
         "id": "spherex_dr1_hips",

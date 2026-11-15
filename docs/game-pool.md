@@ -51,8 +51,7 @@ Lo que sí se comprobó con esas 10 estrellas:
   (≥ 3 píxeles de SPHEREx entre 2010 y 2025-26) y |b| ≥ 15°. Consulta acotada en el mirror de
   Gaia del ARI Heidelberg (1,3 s); el archivo de ESA no respondía.
 - WISE: imágenes de unWISE "allwise" (misión original, 2010–2011; no es IRSA), ~1,4–2 s por
-  estrella. Licencia CC BY-NC-SA; atribución obligatoria: "unWISE / NASA/JPL-Caltech / D. Lang
-  (Perimeter Institute)".
+  estrella. Hay que citar Lang 2014 (AJ 147, 108); ver "Créditos" abajo sobre la licencia.
 - Sin validar: que la estrella se vea en SPHEREx, el límite de brillo por abajo en SPHEREx, la
   latencia de las descargas de SPHEREx y la tasa de descarte final.
 
@@ -118,7 +117,11 @@ Los mismos textos que `GET /credits` y la sección "Data used" del README
   [10.26131/IRSA678](https://www.ipac.caltech.edu/doi/10.26131/IRSA678). Agradecimiento de SPHEREx
   en el README.
 - **unWISE**: "unWISE / NASA/JPL-Caltech / D. Lang (Perimeter Institute)", Lang 2014, AJ 147, 108,
-  [unwise.me](https://unwise.me/). Licencia CC BY-NC-SA 4.0 (uso no comercial, atribución obligatoria).
+  [unwise.me](https://unwise.me/). Licencia: la web pide citar ese artículo y **no declara licencia
+  para los datos de los coadds**; su aviso "CC BY-NC-SA 4.0 / Required attribution" solo acompaña
+  a las tres imágenes de ejemplo de su portada (comprobado el 15-11-2026). Los PNG de WISE de
+  `app/static/game_pool/` son derivados de esos recortes y llevan esta cita; si hiciera falta
+  certeza sobre su redistribución, habría que preguntar al autor (D. Lang).
 - **Gaia DR3** (ESA): Gaia Collaboration, Vallenari et al. 2023, A&A 674, A1. Candidatas y respuesta
   correcta de cada ronda; consultado en el mirror del ARI Heidelberg.
 - **SIMBAD** (CDS, Estrasburgo): Wenger et al. 2000, A&AS 143, 9, DOI
