@@ -307,7 +307,7 @@ El endpoint no depende de la base de datos, de los proveedores de IA ni de los d
     ],
     "subtraction": [
       "Subtracting the stars that stayed. Looking for the ones that sneaked away.",
-      "Spot the difference, but the difference is a planet.",
+      "Spot the difference. Sometimes the difference moves.",
       "Hunting things that move while pretending not to.",
       "Making the boring stars disappear."
     ],

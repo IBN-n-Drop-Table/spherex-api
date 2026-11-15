@@ -342,7 +342,7 @@ Responde sin depender de la base de datos, de la IA ni de los datos en caché, a
     ],
     "subtraction": [
       "Subtracting the stars that stayed. Looking for the ones that sneaked away.",
-      "Spot the difference, but the difference is a planet.",
+      "Spot the difference. Sometimes the difference moves.",
       "Hunting things that move while pretending not to.",
       "Making the boring stars disappear."
     ],
@@ -553,7 +553,7 @@ Categorías: `generic`, `cold_start`, `subtraction`, `game`, `chat`. **Esto es u
 | Preparando una partida | `game` | Al llamar a `POST /game/sessions` |
 | Esperando al asistente | `chat` | Al enviar la pregunta |
 
-Elegir una al azar y cambiarla cada 4 a 5 s. Como el endpoint puede estar durmiendo, el frontend debería llevar una **copia local** de las frases (por ejemplo las de arriba) y refrescarla del servidor cuando responda. Una frase de la lista, "Spot the difference, but the difference is a planet.", sugiere que hay un planeta; si se quiere respetar la regla de no afirmar hallazgos, conviene cambiarla en `app/core/loading_phrases.py`.
+Elegir una al azar y cambiarla cada 4 a 5 s. Como el endpoint puede estar durmiendo, el frontend debería llevar una **copia local** de las frases (por ejemplo las de arriba) y refrescarla del servidor cuando responda. La frase "Spot the difference, but the difference is a planet." sugería un hallazgo y se cambió por "Spot the difference. Sometimes the difference moves." (rama `chore/review-fixes`).
 
 ### 4.5 Marcadores de SIMBAD: catálogo, no descubrimiento
 
