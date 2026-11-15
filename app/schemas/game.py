@@ -71,6 +71,9 @@ class GameRound(_Strict):
     spherex_pixel_scale_arcsec: float | None = Field(
         default=None, description="Resolution of the SPHEREx data behind the image (12.9 for the DR1 HiPS)")
     hit_radius_px: float | None = Field(default=None, description="A guess within this distance is a hit")
+    round_key: str | None = Field(
+        default=None, description="Stable id of a pool round (salted hash; reveals nothing). Send it back "
+        "in `seen` to avoid repeats. Absent in Golden Path rounds")
 
 
 class GameSession(_Strict):
@@ -83,8 +86,22 @@ class GameSession(_Strict):
         "come from the Golden Path; false: pool rounds; null: the pool is not configured")
 
 
+ROUND_KEY_RE = re.compile(r"^[0-9a-f]{12}$")
+
+
 class NewSession(_Strict):
     rounds: int = Field(default=5, ge=3, le=5)
+    seen: list[str] | None = Field(
+        default=None, max_length=500,
+        description="Optional: `round_key`s of pool rounds this player has already seen (stable salted "
+        "hashes, never answers or coordinates). They are excluded while each kind of round has others left.")
+
+    @field_validator("seen")
+    @classmethod
+    def _seen(cls, v: list[str] | None) -> list[str] | None:
+        if v is not None and not all(ROUND_KEY_RE.match(k) for k in v):
+            raise ValueError("seen: every item must be a round_key (12 lowercase hex characters)")
+        return v
 
 
 class Point(_Strict):

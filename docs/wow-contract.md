@@ -178,6 +178,25 @@ Hay dos tipos de ronda, y ninguno usa el detector de anomalías. La respuesta co
 | `pixel_scale_arcsec` | ronda | Segundos de arco por píxel de los PNG de la ronda |
 | `spherex_pixel_scale_arcsec` | ronda | Resolución de los datos SPHEREx de la imagen (12,9 en el HiPS) |
 | `hit_radius_px` | ronda | Radio de acierto en píxeles de la imagen: 15″ en rondas del pool (unos 25 px), 20 px en el Golden Path. Es el mismo valor que devuelve `/guess` |
+| `round_key` | ronda | Identificador estable de una ronda del pool: 12 caracteres hex, un hash con sal que no revela la respuesta ni las coordenadas. `null` en el Golden Path. Es lo que se manda en `seen` |
+
+**Composición de una partida del pool** (el Golden Path mantiene la suya: fácil, medias, difícil):
+
+| Rondas | Orden |
+|---|---|
+| 5 | fácil o media alta · media · media · media o difícil · difícil |
+| 4 | fácil o media alta · media · media o difícil · difícil |
+| 3 | fácil o media alta · media · difícil |
+
+"Media alta" es una ronda `medium` con `expected_shift_arcsec` ≥ 46″ (7,5 píxeles nativos de SPHEREx). Así la primera ronda no depende de que haya muchas fáciles (hoy hay 6 fáciles y 6 medias altas). Ninguna ronda se repite dentro de una partida.
+
+**Sin repeticiones entre partidas: `seen`.** El cuerpo de `POST /sessions` acepta un campo opcional `seen` con los `round_key` de las rondas que el jugador ya ha visto (como mucho 500; cada uno, 12 hex en minúscula, o 422). Se excluyen mientras queden rondas sin ver de ese tipo; si un tipo se agota, solo ese tipo vuelve a empezar. Si `seen` no viene, el sorteo es como antes, independiente en cada partida. El frontend puede guardarlos en `localStorage`:
+
+```json
+{"rounds": 5, "seen": ["3f9a0c1b2d4e", "a81c77e0f5b2", "0d4e9b6a1c37"]}
+```
+
+Con el pool actual (6 fáciles, 30 medias, 69 difíciles), simulando partidas de 5 rondas: sin `seen`, la mediana es de 2 partidas seguidas sin ver una estrella repetida; con `seen`, entre 7 y 12 (mediana 10).
 
 En rondas del pool, `target_id` es `GAIA_DR3_<source_id>`, `target_name` es el nombre de SIMBAD (o el de Gaia), `kind` es `"first_vs_last"`, `epoch_a`/`epoch_b` son `"SPHEREx_DR1"`/`"WISE_2010"`, `weak_signal` es `false` y no hay `hint_image_url`. El pool actual tiene 105 rondas: 6 `easy`, 30 `medium` y 69 `hard` (dificultad por el desplazamiento esperado: ≥ 10, 5–10 y 3–5 píxeles nativos de SPHEREx).
 
@@ -189,7 +208,7 @@ En rondas del pool, `target_id` es `GAIA_DR3_<source_id>`, `target_name` es el n
 
 ### `POST /api/v1/game/sessions` → 201
 
-El cuerpo es opcional: `{"rounds": 5}`, con un valor entre 3 y 5 (5 por defecto). Las rondas van de fácil a difícil: 1 `easy`, luego `medium` y al final 1 `hard`.
+El cuerpo es opcional: `{"rounds": 5}`, con un valor entre 3 y 5 (5 por defecto), y `seen` (ver arriba). En el Golden Path las rondas van de fácil a difícil: 1 `easy`, luego `medium` y al final 1 `hard`; en el pool siguen la composición de arriba.
 
 ```json
 {

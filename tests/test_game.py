@@ -365,24 +365,29 @@ def test_supabase_failure_falls_back_to_memory():
 # --------------------------------------------------------------------------- #
 
 
-def _write_pool(root: Path, n_easy: int = 3, n_medium: int = 5, n_hard: int = 0) -> Path:
+SHIFT = {"easy": 80.0, "medium_high": 50.0, "medium": 40.0, "hard": 25.0}
+
+
+def _write_pool(root: Path, n_easy: int = 3, n_medium: int = 5, n_hard: int = 0, n_medium_high: int = 0) -> Path:
     import json
 
     static = root / "static" / "game_pool"
     static.mkdir(parents=True)
     rounds = []
-    for i, level in enumerate(["easy"] * n_easy + ["medium"] * n_medium + ["hard"] * n_hard):
+    kinds = ["easy"] * n_easy + ["medium"] * n_medium + ["hard"] * n_hard + ["medium_high"] * n_medium_high
+    for i, kind in enumerate(kinds):
+        level = "medium" if kind == "medium_high" else kind
         names = {}
         for tag in ("a", "b"):
             names[tag] = f"{i:02d}{tag}" + "0" * 20 + ".png"
             Image.new("L", (300, 300)).save(static / names[tag])
         rounds.append({
-            "round_key": f"k{i:02d}", "gaia_source_id": str(1000 + i), "name": f"Star  {i}", "difficulty": level,
+            "round_key": f"{i:012x}", "gaia_source_id": str(1000 + i), "name": f"Star  {i}", "difficulty": level,
             "image_a": names["a"], "image_b": names["b"], "telescope_a": "SPHEREx", "telescope_b": "WISE",
             "date_a": "2025-11-01T00:00:00Z", "date_b": "2010-07-02T00:00:00Z",
             "date_a_range": ["2025-07-01T00:00:00Z", "2026-03-01T00:00:00Z"],
             "date_b_range": ["2010-01-07T00:00:00Z", "2011-02-01T00:00:00Z"],
-            "delta_t_days": 5600.0, "expected_shift_arcsec": 40.0,
+            "delta_t_days": 5600.0, "expected_shift_arcsec": SHIFT[kind],
             "pos_a": [150.0, 100.0], "pos_b": [150.0, 166.0], "image_size": 300,
             "pixel_scale_arcsec": 0.6, "spherex_pixel_scale_arcsec": 12.9,
             "region": {"ra_deg": 10.0, "dec_deg": -20.0, "fov_arcmin": 3.0},
@@ -466,3 +471,61 @@ def test_load_pool_skips_rounds_without_images_and_bad_files(tmp_path):
 
 def test_without_a_pool_fallback_is_null(game):
     assert new_session(game)["fallback"] is None
+
+
+def _service(tmp_path, **pool_kw):
+    from app.services.game import load_pool
+
+    pool = load_pool(_write_pool(tmp_path, **pool_kw), tmp_path / "static" / "game_pool")
+    return GameService(game_pairs(), GameSettings(), CropStore(tmp_path / "game", 300, salt="t",
+                                                                static_root=tmp_path), pool=pool), pool
+
+
+@pytest.mark.parametrize("n, kinds", [
+    (5, [{"easy", "medium_high"}, {"medium"}, {"medium"}, {"medium", "hard"}, {"hard"}]),
+    (4, [{"easy", "medium_high"}, {"medium"}, {"medium", "hard"}, {"hard"}]),
+    (3, [{"easy", "medium_high"}, {"medium"}, {"hard"}]),
+])
+def test_pool_session_composition(tmp_path, n, kinds):
+    service, _ = _service(tmp_path, n_easy=1, n_medium=4, n_hard=4, n_medium_high=2)
+    for _ in range(30):
+        rounds = service.create(n).rounds
+        got = [("medium_high" if r.difficulty == "medium" and r.expected_shift_arcsec >= 46.1 else r.difficulty)
+               for r in rounds]
+        for kind, allowed in zip(got, kinds):
+            assert kind in allowed | ({"medium_high"} if "medium" in allowed else set()), (got, kinds)
+        assert len({r.round_key for r in rounds}) == n
+
+
+def test_seen_rounds_are_skipped_while_others_remain(tmp_path):
+    service, pool = _service(tmp_path, n_easy=3, n_medium=8, n_hard=4, n_medium_high=1)
+    seen: list[str] = []
+    for _ in range(2):  # 4 openers (3 easy + 1 medium-high), 4 hard: two games without any repeat
+        keys = [r.round_key for r in service.create(5, seen=seen).rounds]
+        assert not set(keys) & set(seen)
+        seen += keys
+    assert len(set(seen)) == 10
+
+
+def test_an_exhausted_kind_starts_over_alone(tmp_path):
+    service, pool = _service(tmp_path, n_easy=1, n_medium=6, n_hard=3)
+    opener = next(p.key for p in pool if p.difficulty == "easy")
+    hard = {p.key for p in pool if p.difficulty == "hard"}
+    for _ in range(10):
+        rounds = service.create(5, seen=[opener]).rounds
+        assert rounds[0].round_key == opener  # the only opener: its kind starts over
+        assert rounds[-1].round_key in hard
+
+
+def test_seen_is_validated_and_optional(pool_game):
+    bad = pool_game.post(f"{BASE}/sessions", json={"rounds": 3, "seen": ["../etc/passwd"]})
+    assert bad.status_code == 422 and "round_key" in bad.json()["detail"]
+    assert pool_game.post(f"{BASE}/sessions", json={"rounds": 3, "seen": []}).status_code == 201
+    s = new_session(pool_game, rounds=3)
+    assert all(len(r["round_key"]) == 12 for r in s["rounds"])
+    again = new_session(pool_game, rounds=3, seen=[r["round_key"] for r in s["rounds"]])
+    assert not {r["round_key"] for r in again["rounds"]} & {r["round_key"] for r in s["rounds"]}
+
+
+def test_golden_path_rounds_have_no_round_key(game):
+    assert all(r["round_key"] is None for r in new_session(game)["rounds"])

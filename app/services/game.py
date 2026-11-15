@@ -62,6 +62,14 @@ logger = logging.getLogger(__name__)
 
 GAME_TARGETS = ("BARNARDS_STAR", "EPSILON_INDI_B")
 HIT_RADIUS_PX = 20.0  # 10″ at 0.5″/px: about the radius of the star's blob in the PNG
+# Composition of a pool session, slot by slot (README / docs/wow-contract.md). "medium_high": a
+# medium round whose expected shift is >= 7.5 native SPHEREx pixels, as easy to spot as most easy ones.
+POOL_SLOTS = {
+    3: ("opener", "medium", "hard"),
+    4: ("opener", "medium", "medium_or_hard", "hard"),
+    5: ("opener", "medium", "medium", "medium_or_hard", "hard"),
+}
+MEDIUM_HIGH_ARCSEC = 7.5 * SPHEREX_PIXEL_ARCSEC
 POOL_HIT_RADIUS_ARCSEC = 15.0  # ~1.2 pixels of the 12.9" SPHEREx DR1 HiPS
 POOL_MIN_HIT_RADIUS_PX = 12.0
 SPEED_WINDOW_MS = 30_000
@@ -481,6 +489,33 @@ class GameService:
                           pos_b=(pair.pos_b[0] - ox, pair.pos_b[1] - oy),
                           explain=lambda hit, d: explanation(pair, hit, d))
 
+    @staticmethod
+    def _slot_members(slot: str, pool: tuple[PoolSpec, ...]) -> list[PoolSpec]:
+        if slot == "opener":
+            return [p for p in pool if p.difficulty == "easy"
+                    or (p.difficulty == "medium" and p.expected_shift_arcsec >= MEDIUM_HIGH_ARCSEC)]
+        if slot == "medium_or_hard":
+            return [p for p in pool if p.difficulty in ("medium", "hard")]
+        return [p for p in pool if p.difficulty == slot]
+
+    def _compose(self, n: int, seen: set[str]) -> list[PoolSpec]:
+        """One pool round per slot of POOL_SLOTS[n], never twice in a session. `seen` round_keys are
+        skipped while the slot's kind has unseen rounds left; when it has none, that kind alone
+        starts over (its seen rounds become eligible again). A kind missing from the pool takes any
+        round not yet chosen."""
+        chosen: list[PoolSpec] = []
+        for slot in POOL_SLOTS[n]:
+            members = [p for p in self._slot_members(slot, self.pool) if p not in chosen]
+            fresh = [p for p in members if p.key not in seen]
+            if not members:  # this kind is missing from the pool: any round, unseen ones first
+                members = [p for p in self.pool if p not in chosen]
+                fresh = [p for p in members if p.key not in seen]
+            candidates = fresh or members
+            if not candidates:
+                raise RuntimeError(f"the pool cannot fill a {n}-round session")
+            chosen.append(self._rng.choice(candidates))
+        return chosen
+
     def _make_pool_round(self, spec: PoolSpec) -> RoundState:
         public = GameRound(
             round_id=uuid4().hex[:12],
@@ -494,19 +529,20 @@ class GameService:
             date_a_range=list(spec.date_a_range), date_b_range=list(spec.date_b_range),
             region=Region(ra_deg=spec.region[0], dec_deg=spec.region[1], fov_arcmin=spec.region[2]),
             pixel_scale_arcsec=spec.pixel_scale, spherex_pixel_scale_arcsec=spec.spherex_pixel_scale,
-            hit_radius_px=spec.hit_radius_px,
+            hit_radius_px=spec.hit_radius_px, round_key=spec.key,
         )
         return RoundState(public=public, pair=spec, pos_a=spec.pos_a, pos_b=spec.pos_b,
                           explain=lambda hit, d: explanation_pool(spec, hit, d),
                           hit_radius_px=spec.hit_radius_px)
 
-    def create(self, n_rounds: int) -> GameSession:
+    def create(self, n_rounds: int, seen: list[str] | None = None) -> GameSession:
+        """`seen`: round_keys of pool rounds the player already saw (only the pool uses them)."""
         rounds, fallback = None, None
         if self.pool is not None and self.cfg.pool_enabled:
             try:
                 if len(self.pool) < n_rounds:
                     raise RuntimeError(f"the pool has {len(self.pool)} rounds, {n_rounds} needed")
-                rounds = [self._make_pool_round(p) for p in self._pick(n_rounds, self.pool)]
+                rounds = [self._make_pool_round(p) for p in self._compose(n_rounds, set(seen or ()))]
                 fallback = False
             except Exception as exc:  # noqa: BLE001 - any pool problem: serve the Golden Path
                 logger.warning("Game: round pool unusable (%s); falling back to the Golden Path.", exc)

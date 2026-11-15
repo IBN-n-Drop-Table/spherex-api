@@ -73,7 +73,8 @@ def create_session(
 ) -> dict[str, Any]:
     enforce(limiters["sessions"], request, "new game")
     try:
-        session = game.create((body or NewSession()).rounds)
+        request_body = body or NewSession()
+        session = game.create(request_body.rounds, seen=request_body.seen)
     except OverflowError as exc:
         raise HTTPException(503, "Too many games in progress. Try again in a minute.") from exc
     except RuntimeError as exc:
