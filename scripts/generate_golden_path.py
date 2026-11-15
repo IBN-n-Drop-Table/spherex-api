@@ -1118,10 +1118,9 @@ def build_payload(target: Target, uploader: StorageUploader, args, cached: bool 
     if not args.no_cache:
         log.info("Cutouts: %d/%d already in the astropy cache, %d to download",
                  n_cached, n_listed, n_cutouts - n_cached)
-    eta = round(math.ceil(n_cutouts / max(args.workers, 1)) * args.seconds_per_cutout + 10)
     progress("download", 0.05,
-             f"{len(visits)} SPHEREx visits found. Downloading {n_cutouts} IRSA cutouts "
-             f"(~{eta} s estimated). Live processing takes a while: it is not instant.")
+             f"{len(visits)} SPHEREx visits found. Downloading {n_cutouts} IRSA cutouts. "
+             "Live processing takes a while: it is not instant.")
 
     t1 = times[0]
     for eid, t, v in zip(ids, times, visits):
