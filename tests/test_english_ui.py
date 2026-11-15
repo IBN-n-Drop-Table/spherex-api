@@ -25,7 +25,11 @@ from app.services.rate_limit import SlidingWindowLimiter  # noqa: E402
 SPANISH_CHARS = re.compile(r"[áéíóúñÁÉÍÓÚÑ¿¡]")
 SPANISH_WORDS = re.compile(
     r"\b(que|los|las|del|para|una|est[aá]|datos|imagen|estrella|sin|cach[eé]|n[uú]cleo|"
-    r"vuelve|partida|ronda|intento|puntos|años|resta|píxel(es)?)\b",
+    r"vuelve|partida|ronda|intento|puntos|años|resta|píxel(es)?|"
+    # Frequent Spanish words with no accent that are not English words: without them a sentence such as
+    # "Objetos catalogados en la imagen" slipped through (found by mutating a visible message).
+    r"el|la|en|de|con|por|se|son|hay|como|pero|muy|este|objetos?|catalogad[oa]s?|desconocid[oa]s?|"
+    r"consultas?|mostrando|resultados?|guardad[oa]s?|precalculad[oa]s?|ahora|todav[ií]a)\b",
     re.IGNORECASE,
 )
 
