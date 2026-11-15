@@ -1,0 +1,63 @@
+{
+ "generated": "2026-11-15T00:00:40Z",
+ "tap_url": "https://simbad.cfa.harvard.edu/simbad/sim-tap/sync",
+ "target": "WISE_0855",
+ "query": {
+  "ra": 133.761,
+  "dec": -7.242,
+  "radius_deg": 0.0605,
+  "years_since_j2000_max": 26.5,
+  "type_filter": "all",
+  "adql": "SELECT TOP 200 b.main_id, b.otype, o.description AS otype_label, b.ra, b.dec, b.pmra, b.pmdec, b.nbref, f.V, f.G, f.R, f.J, f.H, f.K\nFROM basic AS b\nLEFT JOIN otypedef AS o ON b.otype = o.otype\nLEFT JOIN allfluxes AS f ON b.oid = f.oidref\nWHERE CONTAINS(POINT('ICRS', b.ra, b.dec), CIRCLE('ICRS', 133.761000, -7.242000, 0.141472)) = 1 AND (CONTAINS(POINT('ICRS', b.ra, b.dec), CIRCLE('ICRS', 133.761000, -7.242000, 0.060500)) = 1 OR DISTANCE(POINT('ICRS', b.ra, b.dec), POINT('ICRS', 133.761000, -7.242000)) <= 0.060500 + SQRT(POWER(b.pmra, 2) + POWER(b.pmdec, 2)) / 3600000.0 * 26.5000)\nORDER BY nbref DESC"
+ },
+ "objects": [
+  {
+   "main_id": "WISEA J085510.74-071442.5",
+   "otype": "BD*",
+   "otype_label": "Brown Dwarf",
+   "ra": 133.81890825,
+   "dec": -7.247048000000001,
+   "pmra": -8123.7,
+   "pmdec": 673.2,
+   "nbref": 145,
+   "mag": 25.0,
+   "mag_band": "J"
+  },
+  {
+   "main_id": "3C 209",
+   "otype": "Bla",
+   "otype_label": "Blazar",
+   "ra": 133.78947574595665,
+   "dec": -7.250829654606109,
+   "pmra": 0.228,
+   "pmdec": 0.002,
+   "nbref": 50,
+   "mag": 18.638525,
+   "mag_band": "G"
+  },
+  {
+   "main_id": "LP 666-13",
+   "otype": "PM*",
+   "otype_label": "High Proper Motion Star",
+   "ra": 133.76051597097,
+   "dec": -7.2036117090400005,
+   "pmra": -153.141,
+   "pmdec": -113.357,
+   "nbref": 2,
+   "mag": 17.87,
+   "mag_band": "V"
+  },
+  {
+   "main_id": "Gaia DR3 5756955162623284096",
+   "otype": "*",
+   "otype_label": "Star",
+   "ra": 133.79480978325458,
+   "dec": -7.290018432953888,
+   "pmra": -11.211,
+   "pmdec": 0.74,
+   "nbref": 1,
+   "mag": 16.954573,
+   "mag_band": "G"
+  }
+ ]
+}

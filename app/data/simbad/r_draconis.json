@@ -1,0 +1,39 @@
+{
+ "generated": "2026-11-15T00:00:46Z",
+ "tap_url": "https://simbad.cfa.harvard.edu/simbad/sim-tap/sync",
+ "target": "R_DRACONIS",
+ "query": {
+  "ra": 248.165,
+  "dec": 66.755,
+  "radius_deg": 0.0605,
+  "years_since_j2000_max": 26.5,
+  "type_filter": "all",
+  "adql": "SELECT TOP 200 b.main_id, b.otype, o.description AS otype_label, b.ra, b.dec, b.pmra, b.pmdec, b.nbref, f.V, f.G, f.R, f.J, f.H, f.K\nFROM basic AS b\nLEFT JOIN otypedef AS o ON b.otype = o.otype\nLEFT JOIN allfluxes AS f ON b.oid = f.oidref\nWHERE CONTAINS(POINT('ICRS', b.ra, b.dec), CIRCLE('ICRS', 248.165000, 66.755000, 0.141472)) = 1 AND (CONTAINS(POINT('ICRS', b.ra, b.dec), CIRCLE('ICRS', 248.165000, 66.755000, 0.060500)) = 1 OR DISTANCE(POINT('ICRS', b.ra, b.dec), POINT('ICRS', 248.165000, 66.755000)) <= 0.060500 + SQRT(POWER(b.pmra, 2) + POWER(b.pmdec, 2)) / 3600000.0 * 26.5000)\nORDER BY nbref DESC"
+ },
+ "objects": [
+  {
+   "main_id": "V* R Dra",
+   "otype": "Mi*",
+   "otype_label": "Mira Variable",
+   "ra": 248.16761083295,
+   "dec": 66.75497941722,
+   "pmra": -20.643,
+   "pmdec": 6.149,
+   "nbref": 154,
+   "mag": 9.03,
+   "mag_band": "V"
+  },
+  {
+   "main_id": "Gaia DR3 1648328119433021824",
+   "otype": "PM*",
+   "otype_label": "High Proper Motion Star",
+   "ra": 248.1964479886775,
+   "dec": 66.77799777365554,
+   "pmra": -64.112,
+   "pmdec": 21.488,
+   "nbref": 0,
+   "mag": 14.294922,
+   "mag_band": "G"
+  }
+ ]
+}
