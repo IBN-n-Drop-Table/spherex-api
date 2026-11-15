@@ -120,7 +120,7 @@ Depending on the target or coordinates passed to these endpoints it can have dif
 What the frontend gets as a response from this endpoint (all image URLs absolute):
 
 - `timelapse_epochs[]`: **one entry per SPHEREx visit** (3 for Barnard's Star and WISE 0855), for the blink comparator. Same stretch in every epoch, so blinking is honest. `chemical_filters` has `H2O`, `CO2`, `CO` when that visit has exposures in the window.
-- `difference_imaging`: `epoch_a` (last visit) minus `epoch_b` (first visit): the longest baseline, so the most motion (`kind: "first_vs_last"`). `detected_anomalies[]` come with `kind` (`appeared`/`disappeared`), `contamination_flags`, `is_clean_detection`, and the labels `detection_label` ("Detección Asistida por Software (BETA)") and `detection_notice` ("requiere verificación humana").
+- `difference_imaging`: `epoch_a` (last visit) minus `epoch_b` (first visit): the longest baseline, so the most motion (`kind: "first_vs_last"`). `detected_anomalies[]` come with `kind` (`appeared`/`disappeared`), `contamination_flags`, `is_clean_detection`, and the labels `detection_label` ("Software-Assisted Detection (BETA)") and `detection_notice` ("Anomaly detected by software: requires human verification").
 - `difference_imaging.pairwise[]`: one difference per pair of **consecutive** visits, for the blink comparator. See [Epoch differences](#epoch-differences-first-vs-last-and-consecutive).
 - `spectrum_102_bands` (from `spectrum_epoch_id`) and `light_curve` (one point per visit). Where there is no valid photometry, `flux_mjy_sr` is `null` with a `note`, never 0.
 - `saturated` / `spectrum_message`: bright stars (Barnard's Star, RW Aurigae, R Draconis) saturate SPHEREx. Their cores are **shown** in the PNGs but **excluded** from the spectrum and light curve. Such responses also get `quality: "low"`, `quality: "low"` on every spectral band, and a lower-limit `note` on light-curve points (see [What the data supports](#what-the-data-supports-object-by-object)).
@@ -144,7 +144,7 @@ curl localhost:8000/api/v1/jobs/<job_id>
 - **A cold job takes tens of seconds to a few minutes**: each IRSA cutout takes ~12 s (it always carries a ~4 MB PSF table), and live mode downloads 1 cutout per detector and visit (~18). Measured on 2026-11-14: 40-100 s for Barnard's Star. The messages say so.
 - The same query returns the same job. One job runs at a time; more than 8 queued -> **503** `Retry-After: 30`.
 - Jobs live in memory (1 h after finishing). A restart forgets them, which is why the service runs 1 uvicorn worker.
-- Polling a job that no longer exists (a restart, e.g. Render spinning the free instance down, or 1 h after it finished) answers **404** with `code: "job_not_found"` and `detail: "El análisis se perdió por un reinicio del servidor; vuelve a lanzarlo."`. Show the message and offer to POST the same query again.
+- Polling a job that no longer exists (a restart, e.g. Render spinning the free instance down, or 1 h after it finished) answers **404** with `code: "job_not_found"` and `detail: "The analysis was lost because the server restarted. Please start it again."`. Show the message and offer to POST the same query again.
 - The legacy `GET /sky-patch` / `GET /spectrum` 202 + `Location` flow still works.
 
 See [Offline-first fallback](#offline-first-fallback) for what a job returns when IRSA fails.
@@ -171,17 +171,17 @@ IRSA gets **5 s** (`SIA_BUDGET_S`, retries included) to answer. On a timeout, a 
 
 ```json
 "fallback": true,
-"fallback_message": "Mostrando datos en caché debido a alta latencia en servidores de origen. ...",
+"fallback_message": "Showing cached data because the source servers are responding slowly. ...",
 "fallback_reason": "irsa_unavailable"
 ```
 
-`fallback_reason` is the machine-readable cause, on sky patches, spectra and `/epochs`; it is `null` when `fallback` is false. Branch on it, show `fallback_message` (Spanish), which is worded for that cause:
+`fallback_reason` is the machine-readable cause, on sky patches, spectra and `/epochs`; it is `null` when `fallback` is false. Branch on it, show `fallback_message` (English, ready to display), which is worded for that cause:
 
 | `fallback_reason` | When | `fallback_message` starts with |
 |---|---|---|
-| `irsa_unavailable` | IRSA timed out, throttled (429) or answered 5xx | "Mostrando datos en caché debido a alta latencia en servidores de origen" (+ the nearest object if it is far, + the technical detail) |
-| `live_processing_unavailable` | The position is not pre-computed and this server has no live processing (no science stack) | "Estas coordenadas no están precalculadas y el análisis en vivo no está disponible ahora en este servidor. Elige uno de los 5 objetos del reto o vuelve a lanzar un análisis en vivo (POST /api/v1/jobs) más tarde" + which object is shown instead |
-| `unknown` | Anything else that still fell back | "Mostrando datos en caché: el análisis en vivo no pudo completarse" |
+| `irsa_unavailable` | IRSA timed out, throttled (429) or answered 5xx | "Showing cached data because the source servers are responding slowly" (+ the nearest object if it is far, + the technical detail) |
+| `live_processing_unavailable` | The position is not pre-computed and this server has no live processing (no science stack) | "These coordinates are not precomputed and live analysis is not available on this server right now. Pick one of the 5 challenge objects, or start a live analysis (POST /api/v1/jobs) later" + which object is shown instead |
+| `unknown` | Anything else that still fell back | "Showing cached data: the live analysis could not be completed" (+ the nearest object if it is far, + the technical detail) |
 
 `target_info.name` says which cached object is shown. A failure caused by IRSA never produces a 500. A position IRSA answers for but SPHEREx hasn't covered twice yet ends as `status: failed` with a readable `error`.
 
@@ -452,7 +452,7 @@ Current targets: `WISE_0855`, `BARNARDS_STAR`, `EPSILON_INDI_B`, `RW_AURIGAE`, `
 
 ## What the data supports, object by object
 
-Some caveats are added to responses **when they are served**, from a static table (`app/core/science_notes.py`); the pre-processed files are never edited. Fields: `science_note` (Spanish, for the UI), `quality` (`unvalidated` or `low`) on `/sky-patch` and on target spectra from `/spectrum`, and a `note` on light-curve points.
+Some caveats are added to responses **when they are served**, from a static table (`app/core/science_notes.py`); the pre-processed files are never edited. Fields: `science_note` (English, for the UI), `quality` (`unvalidated` or `low`) on `/sky-patch` and on target spectra from `/spectrum`, and a `note` on light-curve points.
 
 **WISE 0855** (`quality: "unvalidated"`). Measured on 2026-11-14 (60 exposures per visit):
 
@@ -462,7 +462,7 @@ Some caveats are added to responses **when they are served**, from a static tabl
 | In detector 6 (4.4–5 µm) its centroid moves 7.9″ west between the first and last visit, against 8.05″ expected. | That the software detects it: none of the anomalies falls on it, and the broadband difference image does not show its dipole. |
 | | That this is the spectrum of a Y dwarf. |
 
-**Saturated objects** (`saturated: true`: Barnard's Star, RW Aurigae, R Draconis, and any live position that saturates). The rule is applied to every such response: `quality: "low"` on the response and on each spectral band, and every light-curve point that has a flux gets the note *"Límite inferior sesgado ... No sirve para afirmar variabilidad"*: the photometry used only the unsaturated pixels of the aperture.
+**Saturated objects** (`saturated: true`: Barnard's Star, RW Aurigae, R Draconis, and any live position that saturates). The rule is applied to every such response: `quality: "low"` on the response and on each spectral band, and every light-curve point that has a flux gets the note *"Biased lower limit: the core saturates SPHEREx and only the unsaturated pixels of the aperture are measured. It cannot be used to claim variability."*: the photometry used only the unsaturated pixels of the aperture.
 
 | Object | You can say | You cannot say |
 |---|---|---|
@@ -496,11 +496,11 @@ Software: FastAPI, Astropy, Astroquery/PyVO, reproject, NumPy, OpenCV, Matplotli
 
 ## Chat IA
 
-`POST /api/v1/chat` explains, in Spanish, what the user sees. `GET /api/v1/chat/suggestions?target=` returns 4 suggested questions. Full contract with examples: [docs/wow-contract.md](docs/wow-contract.md).
+`POST /api/v1/chat` explains, in English, what the user sees (it always answers in English, even to a question written in Spanish). `GET /api/v1/chat/suggestions?target=` returns 4 suggested questions. Full contract with examples: [docs/wow-contract.md](docs/wow-contract.md).
 
 - **Providers.** Groq goes first and DeepSeek is the backup. Both use the OpenAI-compatible `/chat/completions` endpoint over async httpx. Each provider gets 8 s, retry included, and at most one retry, only on connection errors, 429 or 5xx.
-- **Fallback.** With no keys, with both providers failing, or past the daily cap, the endpoint returns a canned Spanish answer with `fallback: true`. A provider never causes a 5xx.
-- **Prompt.** The system prompt is fixed in `app/services/chat.py` and is in Spanish, with `tone` set to `easy` or `technical`. The model may use only the context it is sent. It must say "no lo sé" when the context lacks the answer, never claim discoveries, and remind the user that findings need human verification.
+- **Fallback.** With no keys, with both providers failing, or past the daily cap, the endpoint returns a canned English answer with `fallback: true`. A provider never causes a 5xx.
+- **Prompt.** The system prompt is fixed in `app/services/chat.py` and is in English, with `tone` set to `easy` or `technical`. The model may use only the context it is sent. It must say "I don't know" when the context lacks the answer, never claim discoveries, and remind the user that findings need human verification.
 - **Untrusted input.** The client's `context` and `history` are wrapped as untrusted data, and the prompt says they cannot change its rules.
 - **Cautions.** The server reads `science_note`, `quality: "low"`, `saturated`, `weak_signal` and `fallback_reason` from the context. It injects them into the prompt and also returns them as `cautions`.
 - **Protection.**
