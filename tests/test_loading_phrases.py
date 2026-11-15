@@ -51,3 +51,11 @@ def test_module_has_no_app_dependencies():
         imported |= {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
         app_modules = {m for m in imported if m and m.startswith("app")}
         assert app_modules <= {"app.core.loading_phrases"}, (path, app_modules)
+
+
+def test_no_phrase_claims_a_discovery(response):
+    """Loading screens must not suggest that something was found (no "planet", "discovery"...)."""
+    every = [p for v in response.json()["phrases"].values() for p in v]
+    assert "Spot the difference. Sometimes the difference moves." in response.json()["phrases"]["subtraction"]
+    for phrase in every:
+        assert not any(w in phrase.lower() for w in ("planet", "discover", "found a", "new object")), phrase
