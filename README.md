@@ -75,7 +75,7 @@ Full, always up-to-date schema: **`/docs`**. A real response is in [`docs/contra
 | `GET` | `/api/v1/spectrum` | 102-band spectrum of a target, an anomaly or a position |
 | `GET`/`POST` | `/api/v1/reports` | Community feed |
 | `POST` | `/api/v1/reports/{id}/verify` | Peer confirmation |
-| `GET` | `/credits` (also `/api/v1/credits`) | Data used: SPHEREx DR1/QR3 (DOIs), Gaia DR3, WISE citations and the SPHEREx acknowledgement |
+| `GET` | `/credits` (also `/api/v1/credits`) | Data used: SPHEREx DR1/QR3 (DOIs), Gaia DR3, WISE and SIMBAD citations and the SPHEREx and SIMBAD acknowledgements |
 | `GET` | `/health` | Service status |
 
 ### Errors
@@ -476,7 +476,7 @@ Some caveats are added to responses **when they are served**, from a static tabl
 
 ## Data used
 
-The same citations are served by `GET /credits` and in the `data_credits` field of every `/sky-patch` and `/spectrum` response (one source: `app/core/credits.py`; a test checks it matches this section word for word).
+The same citations are served by `GET /credits` and in the `data_credits` field of every `/sky-patch` and `/spectrum` response (one source: `app/core/credits.py`; a test checks it matches this section word for word). SIMBAD is the exception: only `GET /credits` lists it, because only the AI chat uses it.
 
 Everything the API serves comes from public archives. Nothing is simulated: where a measurement is impossible (e.g. saturated stars), the response says so (`null` + `note`, `saturated`, `spectrum_message`).
 
@@ -485,12 +485,17 @@ Everything the API serves comes from public archives. Nothing is simulated: wher
 | **SPHEREx** (NASA/JPL/Caltech), served by **IRSA/IPAC** | All images, difference images, spectra and light curves: Level 2 Spectral Images (MEF), downloaded as server-side cutouts | SIA2 `https://irsa.ipac.caltech.edu/SIA`, collections `spherex_dr1` ([DOI 10.26131/IRSA678](https://www.ipac.caltech.edu/doi/10.26131/IRSA678)) and `spherex_qr3` ([DOI 10.26131/IRSA662](https://www.ipac.caltech.edu/doi/10.26131/IRSA662)); deep fields `*_deep` only as a fallback. [SPHEREx at IRSA](https://irsa.ipac.caltech.edu/Missions/spherex.html), [archive user guide](https://caltech-ipac.github.io/spherex-archive-documentation/), [tutorials](https://caltech-ipac.github.io/irsa-tutorials/spherex-intro/) |
 | **Gaia DR3** (ESA) | Reference positions and proper motions of Barnard's Star, Epsilon Indi B, RW Aurigae and R Draconis, propagated to each SPHEREx exposure date | [Gaia archive](https://gea.esac.esa.int/archive/); Gaia Collaboration, Vallenari et al. 2023, A&A 674, A1 |
 | **WISE** (NASA) | Reference position of WISE 0855-0714 (from its WISE designation, epoch ~2010.4); proper motion from Luhman & Esplin (2016, AJ 152, 78) | [WISE at IRSA](https://irsa.ipac.caltech.edu/Missions/wise.html) |
+| **SIMBAD** (CDS, Strasbourg Astronomical Observatory, France) | Catalogued objects near the five challenge objects (identifier, type, magnitude, bibliographic references), given to the AI chat as facts | Saved files in `app/data/simbad/`, never queried live by the chat; Wenger et al. 2000, A&AS 143, 9 ([DOI 10.1051/aas:2000332](https://doi.org/10.1051/aas:2000332)); [SIMBAD](https://simbad.cds.unistra.fr/simbad/) |
 
 Gaia/WISE catalogue overlays in the viewer are drawn by the frontend (Aladin Lite), not by this API.
 
 SPHEREx acknowledgement, as requested by IRSA ([source](https://irsa.ipac.caltech.edu/Missions/spherex.html)):
 
 > This publication makes use of data products from the Spectro-Photometer for the History of the Universe, Epoch of Reionization and Ices Explorer (SPHEREx), which is a joint project of the Jet Propulsion Laboratory and the California Institute of Technology, and is funded by the National Aeronautics and Space Administration.
+
+SIMBAD acknowledgement, as CDS asks (`simbad_acknowledgement` in `GET /credits`):
+
+> This research has made use of the SIMBAD database, operated at CDS, Strasbourg, France.
 
 Software: FastAPI, Astropy, Astroquery/PyVO, reproject, NumPy, OpenCV, Matplotlib, Pillow.
 
@@ -501,6 +506,7 @@ Software: FastAPI, Astropy, Astroquery/PyVO, reproject, NumPy, OpenCV, Matplotli
 - **Providers.** Groq goes first and DeepSeek is the backup. Both use the OpenAI-compatible `/chat/completions` endpoint over async httpx. Each provider gets 8 s, retry included, and at most one retry, only on connection errors, 429 or 5xx.
 - **Fallback.** With no keys, with both providers failing, or past the daily cap, the endpoint returns a canned English answer with `fallback: true`. A provider never causes a 5xx.
 - **Prompt.** The system prompt is fixed in `app/services/chat.py` and is in English, with `tone` set to `easy` or `technical`. The model may use only the context it is sent. It must say "I don't know" when the context lacks the answer, never claim discoveries, and remind the user that findings need human verification.
+- **SIMBAD facts.** When the context names one of the five challenge objects, the prompt gets a `<simbad_catalog>` block: the object (identifier, type, bibliographic references, magnitude) and up to 6 catalogued objects near it, most-cited first, at most 2,500 characters (`app/core/simbad_facts.py`). The facts come from the files saved in `app/data/simbad/`; the chat never queries SIMBAD live. Identifiers and labels are external text, so they are sanitised and the system prompt declares the block as data, not instructions. The model must cite SIMBAD when it uses a fact and must never present a catalogued object as a SPHEREx detection. When the block was used, the response carries the optional `sources: ["SIMBAD"]` (the key is absent otherwise), and the cache key includes the block. Without keys, "What else is near this object?" is answered from the same facts. Example: [docs/wow-contract.md](docs/wow-contract.md).
 - **Untrusted input.** The client's `context` and `history` are wrapped as untrusted data, and the prompt says they cannot change its rules.
 - **Cautions.** The server reads `science_note`, `quality: "low"`, `saturated`, `weak_signal` and `fallback_reason` from the context. It injects them into the prompt and also returns them as `cautions`.
 - **Protection.**

@@ -63,3 +63,20 @@ SPHEREX_ACKNOWLEDGEMENT = (
 ACKNOWLEDGEMENT_SOURCE = "https://irsa.ipac.caltech.edu/Missions/spherex.html"
 
 SOFTWARE = ["FastAPI", "Astropy", "Astroquery/PyVO", "reproject", "NumPy", "OpenCV", "Matplotlib", "Pillow"]
+
+# SIMBAD/CDS: shown by /credits only. It is NOT in DATA_CREDITS, because `data_credits` rides on /sky-patch,
+# /spectrum and job results, which do not use SIMBAD. Only the AI chat does (saved facts, no live query).
+SIMBAD_CREDIT: dict = {
+    "id": "simbad",
+    "source": "SIMBAD astronomical database, CDS, Strasbourg Astronomical Observatory, France",
+    "dataset": "SIMBAD",
+    "used_for": "Catalogued objects near the five challenge objects (identifier, type, magnitude, bibliographic "
+                "references), given to the AI chat as facts",
+    "citation": "Wenger et al. 2000, A&AS 143, 9",
+    "doi": "10.1051/aas:2000332",
+    "url": "https://simbad.cds.unistra.fr/simbad/",
+    "access": None,
+}
+SIMBAD_ACKNOWLEDGEMENT = "This research has made use of the SIMBAD database, operated at CDS, Strasbourg, France."
+
+CREDITS_SERVED: list[dict] = DATA_CREDITS + [SIMBAD_CREDIT]  # what GET /credits lists
