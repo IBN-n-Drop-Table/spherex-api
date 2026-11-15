@@ -371,7 +371,7 @@ En el cielo, el norte está arriba y **el este a la izquierda**, porque así es 
 | `epoch_applied` | `epoch_id` (o `null`), `date` (UTC) y `julian_year` a los que se movieron las posiciones |
 | `truncated` | `true` si había más objetos en la imagen que `max_n` (o más de los que SIMBAD devolvió: tope de 200 filas por consulta) |
 | `source` | `simbad` (en vivo), `cache` (memoria del servidor, TTL de 1 h), `precomputed` (fichero del Golden Path) o `none` (nada respondió: `objects` vacío) |
-| `fallback_reason` | `null`, o `simbad_unavailable` (no respondió en 5 s o dio error) o `simbad_rate_limited` (tope global de peticiones a SIMBAD) |
+| `fallback_reason` | `null`, o `simbad_unavailable` (no respondió en 5 s o dio error) o `simbad_rate_limited` (**nuestro servidor** está espaciando sus consultas a SIMBAD: cubo de fichas global, ráfaga de 10 y 3/s de media; SIMBAD no ha rechazado nada) |
 | `fallback_message` | Texto en inglés para mostrar cuando hay `fallback_reason` |
 | `notice` | Texto en inglés para mostrar junto a los marcadores |
 | `data_credits` | SIMBAD/CDS y SPHEREx (DR1, QR3) |
@@ -585,7 +585,7 @@ Con la URL de SIMBAD inalcanzable. `x`, `y` son los mismos, pero `source` y `fal
 }
 ```
 
-El mismo caso con `simbad_rate_limited` dice: `SIMBAD is receiving too many requests right now and no saved result exists for this field, so no catalogued objects are shown. Try again shortly.`
+El mismo caso con `simbad_rate_limited` dice: `We are slowing down our queries to SIMBAD for a moment and no saved result exists for this field yet, so no catalogued objects are shown. Try again in a few seconds.` Con caché o Golden Path disponibles, se sirven ellos ("Showing the last result saved for this field." / "Showing a precomputed list for this target."); un cubo vacío nunca es un error.
 
 ### Campo vacío
 
@@ -635,4 +635,4 @@ Si SIMBAD responde y no hay objetos, es un 200 con `"objects": []`, `"truncated"
 
 ### Qué está verificado
 
-Contra el servicio real de SIMBAD (espejo de Harvard, datos ingeridos hasta 2026-10-14; el host de CDS tenía un incidente de seguridad y no respondía): nombres de tabla y columnas (`basic`, `otypedef`, `allfluxes`), la lista de 226 códigos de tipo, el formato JSON, la sintaxis ADQL y el movimiento propio de los 5 objetos. Con el movimiento propio de SIMBAD, el objeto de cada recorte cae a 0,00 px (Barnard), 0,13 px (Epsilon Indi B), 0,03 px (RW Aurigae), 0,78 px (WISE 0855) y 7,4 px (R Draconis; su posición en `targets.py` parece estar redondeada a 0,001°, 3,6″, lo que explica la diferencia, pero no se ha comprobado) del centro de su imagen en la primera visita. **Sin verificar:** el host principal de CDS (`simbad.cds.unistra.fr`), el límite real de peticiones por segundo de SIMBAD (se usa un tope de 3/s por prudencia) y la cita de SIMBAD (Wenger et al. 2000), escrita de memoria.
+Contra el servicio real de SIMBAD (espejo de Harvard, datos ingeridos hasta 2026-10-14; el host de CDS tenía un incidente de seguridad y no respondía): nombres de tabla y columnas (`basic`, `otypedef`, `allfluxes`), la lista de 226 códigos de tipo, el formato JSON, la sintaxis ADQL y el movimiento propio de los 5 objetos. Con el movimiento propio de SIMBAD, el objeto de cada recorte cae a 0,00 px (Barnard), 0,13 px (Epsilon Indi B), 0,03 px (RW Aurigae), 0,78 px (WISE 0855) y 7,4 px (R Draconis; su posición en `targets.py` parece estar redondeada a 0,001°, 3,6″, lo que explica la diferencia, pero no se ha comprobado) del centro de su imagen en la primera visita. **Sin verificar:** el host principal de CDS (`simbad.cds.unistra.fr`), el límite real de peticiones por segundo de SIMBAD (se usa un cubo de fichas con ráfaga de 10 y 3/s de media por prudencia; la documentación de SIMBAD que da ese límite no se pudo leer: 403/404). La cita de SIMBAD (Wenger et al. 2000, A&AS 143, 9) sí se comprobó después: la da la página de SIMBAD (espejo de Harvard) y Crossref confirma el DOI 10.1051/aas:2000332.

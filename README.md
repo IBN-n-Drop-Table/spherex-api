@@ -76,7 +76,7 @@ Full, always up-to-date schema: **`/docs`**. A real response is in [`docs/contra
 | `GET`/`POST` | `/api/v1/reports` | Community feed |
 | `POST` | `/api/v1/reports/{id}/verify` | Peer confirmation |
 | `GET` | `/api/v1/catalog-objects` | Objects catalogued in SIMBAD, projected to pixels on the sky-patch image (catalogue entries, not SPHEREx detections) |
-| `GET` | `/credits` (also `/api/v1/credits`) | Data used: SPHEREx DR1/QR3 (DOIs), Gaia DR3, WISE citations and the SPHEREx acknowledgement |
+| `GET` | `/credits` (also `/api/v1/credits`) | Data used: SPHEREx DR1/QR3 (DOIs), Gaia DR3, WISE and SIMBAD citations and the SPHEREx acknowledgement |
 | `GET` | `/health` | Service status |
 
 ### Errors
@@ -486,13 +486,17 @@ Everything the API serves comes from public archives. Nothing is simulated: wher
 | **SPHEREx** (NASA/JPL/Caltech), served by **IRSA/IPAC** | All images, difference images, spectra and light curves: Level 2 Spectral Images (MEF), downloaded as server-side cutouts | SIA2 `https://irsa.ipac.caltech.edu/SIA`, collections `spherex_dr1` ([DOI 10.26131/IRSA678](https://www.ipac.caltech.edu/doi/10.26131/IRSA678)) and `spherex_qr3` ([DOI 10.26131/IRSA662](https://www.ipac.caltech.edu/doi/10.26131/IRSA662)); deep fields `*_deep` only as a fallback. [SPHEREx at IRSA](https://irsa.ipac.caltech.edu/Missions/spherex.html), [archive user guide](https://caltech-ipac.github.io/spherex-archive-documentation/), [tutorials](https://caltech-ipac.github.io/irsa-tutorials/spherex-intro/) |
 | **Gaia DR3** (ESA) | Reference positions and proper motions of Barnard's Star, Epsilon Indi B, RW Aurigae and R Draconis, propagated to each SPHEREx exposure date | [Gaia archive](https://gea.esac.esa.int/archive/); Gaia Collaboration, Vallenari et al. 2023, A&A 674, A1 |
 | **WISE** (NASA) | Reference position of WISE 0855-0714 (from its WISE designation, epoch ~2010.4); proper motion from Luhman & Esplin (2016, AJ 152, 78) | [WISE at IRSA](https://irsa.ipac.caltech.edu/Missions/wise.html) |
-| **SIMBAD** (CDS, Strasbourg Astronomical Observatory, France) | Catalogued objects (identifier, type, position, proper motion, magnitude, bibliographic references) marked on the SPHEREx images, with positions propagated to the observation date | TAP service `https://simbad.cds.unistra.fr/simbad/sim-tap`; Wenger et al. 2000, A&AS 143, 9 ([DOI 10.1051/aas:2000332](https://doi.org/10.1051/aas:2000332)); [SIMBAD](https://simbad.cds.unistra.fr/simbad/). Only `GET /api/v1/catalog-objects` uses it, and carries it in its own `data_credits` |
+| **SIMBAD** (CDS, Strasbourg Astronomical Observatory, France) | Catalogued objects (identifier, type, position, proper motion, magnitude, bibliographic references) marked on the SPHEREx images, with positions propagated to the observation date | TAP service `https://simbad.cds.unistra.fr/simbad/sim-tap`; Wenger et al. 2000, A&AS 143, 9 ([DOI 10.1051/aas:2000332](https://doi.org/10.1051/aas:2000332)); [SIMBAD](https://simbad.cds.unistra.fr/simbad/). Only `GET /api/v1/catalog-objects` uses it: it is in that endpoint's `data_credits` and in `GET /credits`, not in `/sky-patch` or `/spectrum` |
 
 Gaia/WISE catalogue overlays in the viewer are drawn by the frontend (Aladin Lite), not by this API.
 
 SPHEREx acknowledgement, as requested by IRSA ([source](https://irsa.ipac.caltech.edu/Missions/spherex.html)):
 
 > This publication makes use of data products from the Spectro-Photometer for the History of the Universe, Epoch of Reionization and Ices Explorer (SPHEREx), which is a joint project of the Jet Propulsion Laboratory and the California Institute of Technology, and is funded by the National Aeronautics and Space Administration.
+
+SIMBAD acknowledgement, as requested on the SIMBAD home page ([mirror](https://simbad.cfa.harvard.edu/simbad/), read 2026-11-15 while the CDS host was down):
+
+> This research has made use of the SIMBAD database, operated at CDS, Strasbourg, France
 
 Software: FastAPI, Astropy, Astroquery/PyVO, reproject, NumPy, OpenCV, Matplotlib, Pillow.
 
@@ -568,17 +572,19 @@ Contract and examples: [docs/wow-contract.md](docs/wow-contract.md).
 
 - **Query.** One synchronous TAP query (ADQL, JSON): `CONTAINS(POINT('ICRS', ra, dec), CIRCLE(...)) = 1` around the image centre, radius = half the image diagonal, with `pmra`, `pmdec` and the object type. The cone is widened for proper motion (Barnard's Star is ~6 arcmin from its J2000 position in 2026, more than the patch radius) and each row is kept only if its own proper motion can bring it into the image.
 - **Proper motion.** SIMBAD positions are J2000; each one is propagated to the visit date (`epoch_applied`) before projecting with the WCS of the PNG that `/sky-patch` serves. Without proper motion in SIMBAD the position is not moved and `proper_motion_applied` is `false`.
-- **Reliability.** 5 s towards SIMBAD. If it fails, the in-memory result (1 h TTL, even stale), then the precomputed file in `app/data/simbad/` (made by `scripts/generate_simbad_golden.py`), then an empty list, with `source`, `fallback_reason` and an English `fallback_message`. Per-IP limit (20/min) and a global cap of 3 queries/s towards SIMBAD.
+- **Reliability.** 5 s towards SIMBAD. If it fails, the in-memory result (1 h TTL, even stale), then the precomputed file in `app/data/simbad/` (made by `scripts/generate_simbad_golden.py`), then an empty list, with `source`, `fallback_reason` and an English `fallback_message`. Per-IP limit (20/min, 429 with `Retry-After`). Towards SIMBAD, a global token bucket (burst of 10, then 3 queries/s on average): when it is empty no request is sent, saved data is served first, and `fallback_reason: "simbad_rate_limited"` says that **this server** is pacing its queries (SIMBAD refused nothing). SIMBAD's own limit could not be read from its documentation, so 3/s is a cautious value, not a verified one.
 - **Tests** never use the network: SIMBAD is faked. The Golden Path files and the type list in `tests/simbad_otypes_known.txt` are real SIMBAD answers (via its Harvard mirror, 2026-11-15).
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `SIMBAD_TAP_URL` | `https://simbad.cds.unistra.fr/simbad/sim-tap/sync` | Synchronous TAP resource (the Harvard mirror is `https://simbad.cfa.harvard.edu/simbad/sim-tap/sync`) |
+| `SIMBAD_TAP_URL` | `https://simbad.cds.unistra.fr/simbad/sim-tap/sync` | Synchronous TAP resource. `render.yaml` sets the official Harvard mirror, `https://simbad.cfa.harvard.edu/simbad/sim-tap/sync` (see the note below) |
 | `SIMBAD_TIMEOUT_S` | `5` | Budget towards SIMBAD |
 | `SIMBAD_RATE_PER_MIN` | `20` | Per IP |
-| `SIMBAD_GLOBAL_QPS` | `3` | Global queries per second towards SIMBAD |
+| `SIMBAD_BURST` / `SIMBAD_RATE_PER_S` | `10` / `3` | Token bucket towards SIMBAD, all users: burst, then average queries per second (`SIMBAD_GLOBAL_QPS` is the old name of the rate) |
 | `SIMBAD_CACHE_TTL_S` / `SIMBAD_CACHE_MAX_ENTRIES` | `3600` / `500` | In-memory cache |
 | `SIMBAD_FETCH_LIMIT` | `200` | Rows requested per query |
+
+**Why the mirror in production.** On 2026-11-15 the CDS host answered HTTP 404 ("Page unavailable") to a TAP query, during a CDS security incident, while the Harvard mirror answered normally. `render.yaml` therefore sets `SIMBAD_TAP_URL` to the mirror. To go back to CDS, change that variable (or remove it: the code default is the CDS host). The mirror's data were ingested up to 2026-10-14.
 
 Full contract, real examples and interface rules: [docs/wow-contract.md](docs/wow-contract.md#5-objetos-catalogados-en-simbad-get-apiv1catalog-objects).
 

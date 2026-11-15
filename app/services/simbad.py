@@ -29,7 +29,7 @@ import httpx
 
 from app.core.simbad_otypes import TypeFilter, adql_condition, matches
 from app.core.simbad_settings import SimbadSettings
-from app.services.rate_limit import SlidingWindowLimiter
+from app.services.rate_limit import SlidingWindowLimiter, TokenBucket
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +49,8 @@ class SimbadUnavailable(RuntimeError):
 
 
 class SimbadRateLimited(RuntimeError):
-    """The global queries-per-second cap towards SIMBAD is exhausted (no request was sent)."""
+    """THIS server is pacing its queries to SIMBAD (token bucket empty). No request was sent:
+    SIMBAD itself did not refuse anything."""
 
 
 @dataclass(frozen=True)
@@ -214,19 +215,19 @@ class Lookup:
 
 class SimbadService:
     def __init__(self, cfg: SimbadSettings | None = None, transport: Transport | None = None,
-                 cache: TTLCache | None = None, gate: SlidingWindowLimiter | None = None,
+                 cache: TTLCache | None = None, gate: TokenBucket | SlidingWindowLimiter | None = None,
                  precomputed: Callable[[str], list[SimbadRow] | None] | None = None) -> None:
         self.cfg = cfg or SimbadSettings()
         self.transport = transport or http_transport
         self.cache = cache or TTLCache(self.cfg.cache_ttl_s, self.cfg.cache_max_entries)
-        self.gate = gate or SlidingWindowLimiter(self.cfg.global_qps, 1.0)
+        self.gate = gate or TokenBucket(self.cfg.burst, self.cfg.rate_per_s)
         self.precomputed = precomputed or (lambda key: None)
 
     def query(self, ra_deg: float, dec_deg: float, radius_deg: float,
               type_filter: TypeFilter, years: float = 0.0) -> list[SimbadRow]:
         """One live query (global cap applied). Raises SimbadRateLimited or SimbadUnavailable."""
         if self.gate.check("simbad") is not None:
-            raise SimbadRateLimited("global SIMBAD rate cap reached")
+            raise SimbadRateLimited("our own pace of queries to SIMBAD is exhausted; no request sent")
         adql = build_adql(ra_deg, dec_deg, radius_deg + PAD_DEG, type_filter, self.cfg.fetch_limit,
                           quantize_years(years))
         return parse_tap_json(self.transport(self.cfg.tap_url, adql, self.cfg.timeout_s))

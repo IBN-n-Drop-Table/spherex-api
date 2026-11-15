@@ -16,3 +16,8 @@ services:
         sync: false
       - key: SUPABASE_KEY
         sync: false
+      # SIMBAD for GET /api/v1/catalog-objects: the official Harvard mirror. On 2026-11-15 the CDS host
+      # (https://simbad.cds.unistra.fr/simbad/sim-tap/sync, the code's default) answered 404. To go back
+      # to CDS, change or delete this value.
+      - key: SIMBAD_TAP_URL
+        value: https://simbad.cfa.harvard.edu/simbad/sim-tap/sync
