@@ -22,7 +22,8 @@ KEYS = list(TARGET_IDS)
 def no_network(monkeypatch):
     def refuse(*a, **k):
         raise AssertionError("the SIMBAD facts loader must not touch the network")
-    monkeypatch.setattr(socket, "socket", refuse)
+    monkeypatch.setattr(socket.socket, "connect", refuse)
+    monkeypatch.setattr(socket, "create_connection", refuse)
 
 
 @pytest.mark.parametrize("key", KEYS)

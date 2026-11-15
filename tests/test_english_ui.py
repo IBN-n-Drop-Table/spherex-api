@@ -137,3 +137,16 @@ def test_legacy_table_is_complete_and_english():
         assert not SPANISH_CHARS.search(en) and not SPANISH_WORDS.search(en), en
     assert english("Already English.") == "Already English."
     assert english(None) is None
+
+
+@pytest.mark.parametrize("target", [None, *CATALOG])
+def test_chat_with_simbad_facts_is_in_english(client, target):
+    """The 'what is near' answer, `sources` and the SIMBAD block sent to the model are all English."""
+    context = {"target": target} if target else {}
+    body = client.post("/api/v1/chat", json={"message": "What else is near this object?",
+                                             "context": context}).json()
+    assert_english(body, f"nearby {target}")
+    if target:
+        assert body["sources"] == ["SIMBAD"]
+        from app.core.simbad_facts import build_catalog_facts
+        assert_english(build_catalog_facts(target).block, f"simbad block {target}")
