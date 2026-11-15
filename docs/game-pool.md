@@ -26,6 +26,36 @@ Lo que sí se comprobó con esas 10 estrellas:
 - Sin validar: que la estrella se vea en SPHEREx, el límite de brillo por abajo en SPHEREx, la
   latencia de las descargas de SPHEREx y la tasa de descarte final.
 
+## Ruta HiPS DR1 en S3 (`--spherex-source hips`): validada el 15-11-2026
+
+Sin IRSA: las imágenes de SPHEREx salen del cubo HiPS de DR1 del bucket público
+`nasa-irsa-spherex` (`dr1/hips5_cube/hips_20261026/Norder5`), leyendo con peticiones `Range`
+solo las filas que necesita cada ronda. Solo rondas fáciles y medias (desplazamiento ≥ 31″,
+`--min-shift-px 5`), porque el píxel del HiPS es de ~12,9″.
+
+- Canales: D2 + D3 (1,1–2,4 µm), uno de cada dos (17), combinados por mediana. Las candidatas
+  (enanas M y blancas cercanas) son más brillantes ahí y el fondo zodiacal térmico crece por
+  encima de ~3,5 µm.
+- Fechas: cada tesela mezcla las visitas entre `MJD-BEG` y `MJD-END`. La ronda guarda ese
+  intervalo (`date_a_range`); la respuesta es Gaia propagado al punto medio, y la tolerancia
+  del control de calidad suma pm × (intervalo / 2).
+- Control de calidad, en las dos imágenes: estrella visible (≥ 5σ), centroide dentro de la
+  tolerancia de Gaia, el sitio de la otra fecha vacío y, en SPHEREx, nada fuera de 25″ de las
+  dos posiciones con más del 50 % del pico de la estrella (descarta las franjas de los HiPS).
+
+| Prueba | Estrellas | Jugables | Notas |
+|---|---|---|---|
+| Validación | 18 (14 aisladas) | 7 (50 % de las aisladas) | desplazamiento medido vs esperado: error 3–5″ |
+| Pool completo (pm ≥ 2,05″/año, G ≥ 6, paralaje > 50 mas) | 47 | 18 (4 fáciles, 14 medias) | 4–15 s por estrella (mediana 5 s); error mediano 2,7″, máximo 5,0″ |
+
+Descartes en el pool: 9 vecina en Gaia (binarias, compañeras), 8 control de SPHEREx (sobre
+todo franjas/desorden), 7 cobertura parcial del HiPS, 5 control de WISE (saturación o mezcla).
+Tamaño: 408 KB de PNG (36 imágenes de 300 × 300) + 44 KB de manifiesto.
+
+Limitaciones: 18 rondas es poco (el objetivo era 60–150) porque la consulta de candidatas solo
+cubre paralaje > 50 mas; los descartes por cobertura parcial (15 %) no se han investigado; las
+estrellas se ven como manchas romboidales (píxel de 12,9″, proyección HPX girada 45°); solo DR1.
+
 ## Principio de la respuesta
 
 La posición correcta de cada ronda sale de Gaia DR3 (posición + movimiento propio) propagada a

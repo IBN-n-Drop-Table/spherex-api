@@ -275,6 +275,123 @@ def spherex_stack(gp, center: tuple[float, float], fov_arcmin: float, a: argpars
             "detectors": sorted(epoch.display_stacks), "obs_ids": sorted({e.obs_id for e in exposures})}
 
 
+# --- SPHEREx DR1 HiPS cube on the public S3 bucket (no IRSA) --------------------------------- #
+# Layout checked on 2026-11-15 (scripts/s3_range_test.py): every Norder5 tile is a 512x512x102
+# float32 MJy/sr cube (HDU 1 "IMAGE", RA---HPX/DEC--HPX, ICRS), then NHITS, FLAGS and a
+# WCS-WAVE table; the primary header has MJD-BEG/MJD-END of the inputs. Channels are ordered by
+# detector, 17 each: D1 0.75-1.1 um (0-16), D2 1.1-1.6 (17-33), D3 1.6-2.4 (34-50), D4 2.4-3.8,
+# D5 3.8-4.4, D6 4.4-5.0 um.
+HIPS_ROOT = "https://nasa-irsa-spherex.s3.amazonaws.com/dr1/hips5_cube/hips_20261026/Norder5"
+HIPS_ORDER = 5
+# D2 + D3 (1.1-2.4 um), every other channel: nearby high proper-motion stars (M dwarfs, white
+# dwarfs) are brightest there, while the thermal zodiacal background climbs beyond ~3.5 um.
+# Every other channel halves the Range requests; the median resists single-channel artefacts.
+HIPS_CHANNELS = tuple(range(17, 51, 2))
+
+
+def http_range(url: str, start: int, end: int, timeout: float) -> bytes:
+    import requests
+
+    r = requests.get(url, headers={"Range": f"bytes={start}-{end}",
+                                   "User-Agent": "spherex-citizen-science-pool-builder"}, timeout=timeout)
+    r.raise_for_status()
+    return r.content
+
+
+def fits_header_at(url: str, pos: int, timeout: float):
+    """(header, data offset) of the HDU whose header starts at byte `pos`, read by Range requests."""
+    from astropy.io import fits
+
+    end_card = b"END" + b" " * 77
+    buf = b""
+    while len(buf) < 2880 * 40:
+        buf += http_range(url, pos + len(buf), pos + len(buf) + 2880 * 4 - 1, timeout)
+        for k in range(0, len(buf) - 79, 80):
+            if buf[k:k + 80] == end_card:
+                size = (k // 2880 + 1) * 2880
+                return fits.Header.fromstring(buf[:size].decode("ascii")), pos + size
+    raise RuntimeError(f"no END card in the first 40 blocks of {url} at {pos}")
+
+
+def hips_celestial_wcs(header):
+    """The tile's 2-D HPX WCS (the third, tabulated wavelength axis dropped)."""
+    from astropy.wcs import WCS
+
+    h = header.copy()
+    for k in list(h.keys()):
+        if (k[-1:] == "3" and k[:-1] in ("NAXIS", "CTYPE", "CRPIX", "CDELT", "CRVAL", "CUNIT", "CNAME")) \
+                or k.startswith(("PS3_", "PV3_")) or (k.startswith("PC") and "3" in k[2:]):
+            del h[k]
+    h["NAXIS"], h["WCSAXES"] = 2, 2
+    return WCS(h)
+
+
+def hips_tile(ra: float, dec: float) -> int:
+    from astropy import units as u
+    from astropy.coordinates import Latitude, Longitude
+    from astropy_healpix import HEALPix
+
+    return int(HEALPix(nside=2**HIPS_ORDER, order="nested").lonlat_to_healpix(
+        Longitude(ra * u.deg), Latitude(dec * u.deg)))
+
+
+def hips_stack(grid, shape: tuple[int, int], a: argparse.Namespace) -> dict:
+    """Median of HIPS_CHANNELS over the round grid, read from the HiPS tiles by Range requests
+    (only the rows the grid needs), reprojected HPX -> grid. Tiles meeting the grid are combined."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from reproject import reproject_interp
+
+    ny, nx = shape
+    edge = np.linspace(0, nx - 1, 13)
+    px = np.concatenate([edge, edge, np.zeros(13), np.full(13, nx - 1.0), [nx / 2]])
+    py = np.concatenate([np.zeros(13), np.full(13, ny - 1.0), edge, edge, [ny / 2]])
+    sky = grid.pixel_to_world(px, py)
+    tiles = sorted({hips_tile(float(r), float(d)) for r, d in zip(sky.ra.deg, sky.dec.deg)})
+    total = np.zeros(shape)
+    count = np.zeros(shape)
+    beg, end, nbytes, pixel_arcsec = [], [], 0, None
+    for npix in tiles:
+        url = f"{HIPS_ROOT}/Dir{npix // 10000 * 10000}/Npix{npix}_cube.fits"
+        h0, d0 = fits_header_at(url, 0, a.timeout)
+        h1, d1 = fits_header_at(url, d0, a.timeout)
+        if h1.get("EXTNAME") != "IMAGE" or h1.get("NAXIS3") != 102 or h1.get("BITPIX") != -32:
+            raise RuntimeError(f"unexpected HiPS layout in {url}")
+        w = hips_celestial_wcs(h1)
+        pixel_arcsec = float(np.sqrt(abs(np.linalg.det(w.pixel_scale_matrix))) * 3600)
+        tx, ty = w.world_to_pixel(sky)
+        n1, n2 = h1["NAXIS1"], h1["NAXIS2"]
+        x0, x1 = max(int(np.floor(np.nanmin(tx))) - 3, 0), min(int(np.ceil(np.nanmax(tx))) + 3, n1 - 1)
+        y0, y1 = max(int(np.floor(np.nanmin(ty))) - 3, 0), min(int(np.ceil(np.nanmax(ty))) + 3, n2 - 1)
+        if x0 > x1 or y0 > y1:
+            continue
+        rows = y1 - y0 + 1
+
+        def plane(c: int) -> np.ndarray:
+            start = d1 + 4 * (c * n1 * n2 + y0 * n1)
+            raw = http_range(url, start, start + 4 * rows * n1 - 1, a.timeout)
+            return np.frombuffer(raw, ">f4").reshape(rows, n1)[:, x0:x1 + 1].astype(np.float32)
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            planes = list(pool.map(plane, HIPS_CHANNELS))
+        nbytes += len(HIPS_CHANNELS) * 4 * rows * n1
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            img = np.nanmedian(np.stack(planes), axis=0)
+        sub = w[y0:y1 + 1, x0:x1 + 1]
+        out, foot = reproject_interp((img, sub), grid, shape_out=shape, order="bilinear")
+        ok = (foot > 0) & np.isfinite(out)
+        total[ok] += out[ok]
+        count[ok] += 1
+        beg.append(float(h0["MJD-BEG"]))
+        end.append(float(h0["MJD-END"]))
+    if not count.any():
+        return {"status": "rejected", "reason": "no_hips_coverage"}
+    image = np.where(count > 0, total / np.maximum(count, 1), np.nan)
+    return {"status": "ok", "image": image, "mjd_beg": min(beg), "mjd_end": max(end), "tiles": tiles,
+            "bytes": nbytes, "pixel_arcsec": pixel_arcsec, "coverage": float((count > 0).mean())}
+
+
 def centroid(img: np.ndarray, x0: float, y0: float, radius: float, half: float) -> tuple[float, float] | None:
     """Light above the image median in a +-`half` box, started on the brightest pixels within
     `radius` of (x0, y0) and recentred until it converges (same measure as tests/test_game.py,
@@ -313,7 +430,7 @@ def peak_near(img: np.ndarray, x: float, y: float, radius: float) -> float:
 
 
 def qa_image(img: np.ndarray, here: tuple[float, float], there: tuple[float, float], scale: float,
-             tol_arcsec: float, min_snr: float, max_ghost: float) -> dict:
+             tol_arcsec: float, min_snr: float, max_ghost: float, max_clutter: float | None = None) -> dict:
     """`here`: the star's predicted 0-based grid position in this image; `there`: its position at
     the other date, which must look empty. Positions in 0-based grid pixels (FITS orientation)."""
     med, sig = robust_sigma(img)
@@ -322,11 +439,21 @@ def qa_image(img: np.ndarray, here: tuple[float, float], there: tuple[float, flo
     out = {"snr": round(peak / sig, 1)}
     c = centroid(img, *here, r_search, 7.0 / scale)
     out["offset_arcsec"] = None if c is None else round(math.hypot(c[0] - here[0], c[1] - here[1]) * scale, 1)
+    out["centroid_px"] = None if c is None else [round(c[0], 2), round(c[1], 2)]  # 0-based grid, +y up
     ghost = peak_near(img, *there, 6.0 / scale) - med
     out["ghost_ratio"] = round(ghost / peak, 2) if peak > 0 else None
+    # Clutter: nothing outside 25" of both positions may reach `max_clutter` of the star's peak,
+    # or the player could take it for the mover (e.g. the streak artefacts of the HiPS tiles).
+    yy, xx = np.indices(img.shape)
+    away = np.isfinite(img) & (np.hypot(xx - here[0], yy - here[1]) > 25.0 / scale) \
+        & (np.hypot(xx - there[0], yy - there[1]) > 25.0 / scale)
+    other = float(img[away].max()) - med if away.any() else 0.0
+    out["clutter_ratio"] = round(other / peak, 2) if peak > 0 else None
     out["visible"] = bool(peak / sig >= min_snr)
     out["on_target"] = out["offset_arcsec"] is not None and out["offset_arcsec"] <= tol_arcsec
     out["other_position_empty"] = out["ghost_ratio"] is not None and out["ghost_ratio"] <= max_ghost
+    out["uncluttered"] = max_clutter is None or (out["clutter_ratio"] is not None
+                                                 and out["clutter_ratio"] <= max_clutter)
     return out
 
 
@@ -407,20 +534,42 @@ def build_round(gp, star: dict, a: argparse.Namespace, salt: str, static_dir: Pa
     if not (qa_w["visible"] and qa_w["on_target"] and qa_w["other_position_empty"]):
         return {"status": "rejected", "reason": "wise_qa", "qa_wise": qa_w, "timings": timings}
 
-    # 4. SPHEREx (IRSA, the slow part).
+    # 4. SPHEREx: Level 2 cutouts from IRSA (slow, SIA needed) or the DR1 HiPS cube on S3.
     t2 = time.monotonic()
-    sx = spherex_stack(gp, center, fov / 60.0 + 0.5, a)  # grid + 15\" margin per side
-    timings["spherex_s"] = round(time.monotonic() - t2, 2)
-    if sx["status"] != "ok":
-        return sx | {"timings": timings, "qa_wise": qa_w}
-    spherex = reproject_interp((sx["image"], sx["wcs"]), grid, shape_out=shape, return_footprint=False,
-                               order="bilinear")
-    s_time = Time(sx["mjd"], format="mjd", scale="utc")
+    if a.spherex_source == "hips":
+        sx = hips_stack(grid, shape, a)
+        timings["spherex_s"] = round(time.monotonic() - t2, 2)
+        if sx["status"] != "ok":
+            return sx | {"timings": timings, "qa_wise": qa_w}
+        yy, xx = np.indices(shape)
+        near_both = np.zeros(shape, bool)
+        for p in (pos_w, pos_now):
+            gx, gy = grid_xy(p)
+            near_both |= np.hypot(xx - gx, yy - gy) <= 20.0 / scale
+        if sx["coverage"] < 0.9 or not np.isfinite(sx["image"][near_both]).all():
+            return {"status": "rejected", "reason": "hips_partial_coverage", "detail": f"{sx['coverage']:.0%}",
+                    "timings": timings, "qa_wise": qa_w}
+        spherex = sx["image"]
+        # The tile coadds every input between MJD-BEG and MJD-END: the answer uses the middle and
+        # the tolerance absorbs half the span (pm x span / 2).
+        s_time = Time((sx["mjd_beg"] + sx["mjd_end"]) / 2, format="mjd", scale="utc")
+        half_span_yr = (sx["mjd_end"] - sx["mjd_beg"]) / 2 / 365.25
+        s_tol = max(a.tol_arcsec, 0.5 * sx["pixel_arcsec"]) + pm * half_span_yr
+    else:
+        sx = spherex_stack(gp, center, fov / 60.0 + 0.5, a)  # grid + 15" margin per side
+        timings["spherex_s"] = round(time.monotonic() - t2, 2)
+        if sx["status"] != "ok":
+            return sx | {"timings": timings, "qa_wise": qa_w}
+        spherex = reproject_interp((sx["image"], sx["wcs"]), grid, shape_out=shape, return_footprint=False,
+                                   order="bilinear")
+        s_time = Time(sx["mjd"], format="mjd", scale="utc")
+        s_tol = a.tol_arcsec
     pos_s = gaia_at(star, float(s_time.jyear))
-    qa_s = qa_image(spherex, grid_xy(pos_s), grid_xy(pos_w), scale, a.tol_arcsec, a.min_snr, a.max_ghost)
+    qa_s = qa_image(spherex, grid_xy(pos_s), grid_xy(pos_w), scale, s_tol, a.min_snr, a.max_ghost,
+                    a.max_clutter)
     # The WISE image must also be empty where SPHEREx sees the star (exact date now).
     qa_w = qa_image(wise, grid_xy(pos_w), grid_xy(pos_s), scale, wise_tol, a.min_snr, a.max_ghost)
-    if not (qa_s["visible"] and qa_s["on_target"] and qa_s["other_position_empty"]):
+    if not (qa_s["visible"] and qa_s["on_target"] and qa_s["other_position_empty"] and qa_s["uncluttered"]):
         return {"status": "rejected", "reason": "spherex_qa", "qa_spherex": qa_s, "qa_wise": qa_w,
                 "timings": timings}
     if not qa_w["other_position_empty"]:
@@ -428,9 +577,11 @@ def build_round(gp, star: dict, a: argparse.Namespace, salt: str, static_dir: Pa
                 "timings": timings}
 
     shift = sep_arcsec(pos_w, pos_s)
+    measured = math.hypot(qa_s["centroid_px"][0] - qa_w["centroid_px"][0],
+                          qa_s["centroid_px"][1] - qa_w["centroid_px"][1]) * scale
     level = difficulty_of(shift / SPHEREX_PIXEL_ARCSEC)
-    if level is None:
-        return {"status": "rejected", "reason": "shift_below_3_px", "detail": f"{shift:.1f}\""}
+    if level is None or shift / SPHEREX_PIXEL_ARCSEC < a.min_shift_px:
+        return {"status": "rejected", "reason": "shift_below_minimum", "detail": f"{shift:.1f}\""}
 
     # 5. Files and manifest entry (the answer stays in the manifest, server side).
     names = {}
@@ -439,7 +590,20 @@ def build_round(gp, star: dict, a: argparse.Namespace, salt: str, static_dir: Pa
         (static_dir / name).write_bytes(to_png(img))
         names[tag] = name
     pa, pb = to_png_xy(grid, a.png_size, pos_s), to_png_xy(grid, a.png_size, pos_w)
-    s_date = s_time.to_datetime(timezone=UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    def iso(t) -> str:
+        return t.to_datetime(timezone=UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+    s_date = iso(s_time)
+    if a.spherex_source == "hips":
+        spherex_meta = {"product": "SPHEREx DR1 HiPS cube (nasa-irsa-spherex S3, hips5_cube/hips_20261026)",
+                        "tiles": sx["tiles"], "channels": list(HIPS_CHANNELS), "bandpass_um": [1.1, 2.4],
+                        "date_range": [iso(Time(sx["mjd_beg"], format="mjd")), iso(Time(sx["mjd_end"], format="mjd"))],
+                        "bytes_read": sx["bytes"]}
+        spherex_px = round(sx["pixel_arcsec"], 2)
+    else:
+        spherex_meta = {"product": "SPHEREx Level 2 cutouts (IRSA)", "n_exposures": sx["n_exposures"],
+                        "detectors": sx["detectors"], "obs_ids": sx["obs_ids"]}
+        spherex_px = SPHEREX_PIXEL_ARCSEC
     timings["total_s"] = round(time.monotonic() - t0, 2)
     return {
         "status": "ok",
@@ -454,17 +618,19 @@ def build_round(gp, star: dict, a: argparse.Namespace, salt: str, static_dir: Pa
             "image_a": names["a"], "image_b": names["b"],
             "telescope_a": "SPHEREx", "telescope_b": "WISE",
             "date_a": s_date, "date_b": WISE_DATE,
+            "date_a_range": spherex_meta.get("date_range", [s_date, s_date]),
+            "date_b_range": ["2010-01-07T00:00:00Z", "2011-02-01T00:00:00Z"],
             "delta_t_days": round((s_time.jyear - WISE_EPOCH_YR) * 365.25, 1),
             "expected_shift_arcsec": round(shift, 1),
             "shift_spherex_px": round(shift / SPHEREX_PIXEL_ARCSEC, 2),
             "pos_a": [round(v, 2) for v in pa], "pos_b": [round(v, 2) for v in pb],
             "image_size": a.png_size,
-            "pixel_scale_arcsec": round(scale, 4),
+            "pixel_scale_arcsec": round(scale, 4),  # of the PNGs (click tolerance)
+            "spherex_pixel_scale_arcsec": spherex_px,  # resolution of the SPHEREx image
             "region": {"ra_deg": round(center[0], 6), "dec_deg": round(center[1], 6),
                        "fov_arcmin": round(fov / 60.0, 2)},
-            "spherex": {"n_exposures": sx["n_exposures"], "detectors": sx["detectors"],
-                        "obs_ids": sx["obs_ids"]},
-            "qa": {"spherex": qa_s, "wise": qa_w},
+            "spherex": spherex_meta,
+            "qa": {"spherex": qa_s, "wise": qa_w, "measured_shift_arcsec": round(measured, 1)},
         },
         "timings": timings,
     }
@@ -568,7 +734,11 @@ def main() -> int:
     p.add_argument("--min-fov-arcsec", type=float, default=180.0)
     p.add_argument("--max-fov-arcsec", type=float, default=360.0)
     p.add_argument("--margin-arcsec", type=float, default=40.0, help="both positions this far from the edges")
-    p.add_argument("--per-detector", type=int, default=2, help="SPHEREx exposures per detector")
+    p.add_argument("--spherex-source", choices=["irsa", "hips"], default="irsa",
+                   help="irsa: Level 2 cutouts (SIA + cutout service); hips: DR1 HiPS cube on S3")
+    p.add_argument("--min-shift-px", type=float, default=3.0,
+                   help="minimum expected shift in native SPHEREx px (use 5 with --spherex-source hips)")
+    p.add_argument("--per-detector", type=int, default=2, help="SPHEREx exposures per detector (irsa)")
     p.add_argument("--workers", type=int, default=4)
     p.add_argument("--timeout", type=float, default=60.0, help="per HTTP request (s)")
     p.add_argument("--sia-budget-s", type=float, default=60.0)
@@ -578,6 +748,8 @@ def main() -> int:
     p.add_argument("--min-snr", type=float, default=5.0)
     p.add_argument("--max-ghost", type=float, default=0.25,
                    help="max (peak at the other date's position) / (star peak)")
+    p.add_argument("--max-clutter", type=float, default=0.5,
+                   help="SPHEREx: max (brightest other feature, >25\" from both positions) / (star peak)")
     p.add_argument("-v", "--verbose", action="store_true")
     a = p.parse_args()
     logging.basicConfig(level=logging.DEBUG if a.verbose else logging.INFO,
