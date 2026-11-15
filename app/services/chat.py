@@ -30,7 +30,6 @@ from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Any
 
-from app.core.simbad_facts import TAG as SIMBAD_TAG
 from app.core.simbad_facts import CatalogFacts, build_catalog_facts
 from app.core.target_stories import STORIES
 from app.core.targets import CATALOG
