@@ -37,7 +37,7 @@ Base de las rutas: `/api/v1`. CORS abierto (`*`). Las cabeceras `Location` y `Re
 | GET | `/game/leaderboard` | Los 20 mejores | — |
 | GET | `/loading-phrases` | Frases para las pantallas de carga | — |
 | GET | `/catalog-objects` | Objetos catalogados en SIMBAD, en píxeles sobre la imagen de `/sky-patch` (apartado 2.6) | 404, 422, 429 |
-| GET | `/credits` y `/api/v1/credits` | Citas de los datos usados | — |
+| GET | `/credits` y `/api/v1/credits` | Citas de los datos usados (desde `chore/review-fixes` incluye SIMBAD) | — |
 | GET | `/sky-patch`, `/spectrum`, `/epochs`, `/jobs/{id}` | Ya existían; campos y textos nuevos (apartado 2.5) | ver 2.5 |
 
 ### 2.1 `GET /targets`: subtítulos de distancia

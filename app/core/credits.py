@@ -64,8 +64,10 @@ ACKNOWLEDGEMENT_SOURCE = "https://irsa.ipac.caltech.edu/Missions/spherex.html"
 
 SOFTWARE = ["FastAPI", "Astropy", "Astroquery/PyVO", "reproject", "NumPy", "OpenCV", "Matplotlib", "Pillow"]
 
-# SIMBAD/CDS: served by /catalog-objects only (kept out of DATA_CREDITS so that /credits and the other
-# responses stay unchanged). The README's "Data used" section carries the same wording (tests/test_catalog_objects.py).
+# SIMBAD/CDS: used only by /catalog-objects, so it is kept out of DATA_CREDITS (what /sky-patch and /spectrum
+# cite) and listed by /credits through ALL_DATA_CREDITS. Citation checked on 2026-11-15 against SIMBAD's own page
+# (Harvard mirror: "2000,A&AS,143,9", "The SIMBAD astronomical database", Wenger et al.) and the DOI against
+# Crossref (10.1051/aas:2000332 -> A&AS 143(1), 9-22, 2000). The README's "Data used" section carries the same wording.
 SIMBAD_CREDIT: dict = {
     "id": "simbad",
     "source": "SIMBAD astronomical database, CDS, Strasbourg Astronomical Observatory, France",
@@ -77,3 +79,8 @@ SIMBAD_CREDIT: dict = {
     "url": "https://simbad.cds.unistra.fr/simbad/",
     "access": "https://simbad.cds.unistra.fr/simbad/sim-tap",
 }
+
+SIMBAD_ACKNOWLEDGEMENT = "This research has made use of the SIMBAD database, operated at CDS, Strasbourg, France"
+
+# Everything this API uses: what GET /credits lists.
+ALL_DATA_CREDITS: list[dict] = DATA_CREDITS + [SIMBAD_CREDIT]

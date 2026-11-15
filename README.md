@@ -76,7 +76,7 @@ Full, always up-to-date schema: **`/docs`**. A real response is in [`docs/contra
 | `GET`/`POST` | `/api/v1/reports` | Community feed |
 | `POST` | `/api/v1/reports/{id}/verify` | Peer confirmation |
 | `GET` | `/api/v1/catalog-objects` | Objects catalogued in SIMBAD, projected to pixels on the sky-patch image (catalogue entries, not SPHEREx detections) |
-| `GET` | `/credits` (also `/api/v1/credits`) | Data used: SPHEREx DR1/QR3 (DOIs), Gaia DR3, WISE citations and the SPHEREx acknowledgement |
+| `GET` | `/credits` (also `/api/v1/credits`) | Data used: SPHEREx DR1/QR3 (DOIs), Gaia DR3, WISE and SIMBAD citations and the SPHEREx acknowledgement |
 | `GET` | `/health` | Service status |
 
 ### Errors
@@ -486,13 +486,17 @@ Everything the API serves comes from public archives. Nothing is simulated: wher
 | **SPHEREx** (NASA/JPL/Caltech), served by **IRSA/IPAC** | All images, difference images, spectra and light curves: Level 2 Spectral Images (MEF), downloaded as server-side cutouts | SIA2 `https://irsa.ipac.caltech.edu/SIA`, collections `spherex_dr1` ([DOI 10.26131/IRSA678](https://www.ipac.caltech.edu/doi/10.26131/IRSA678)) and `spherex_qr3` ([DOI 10.26131/IRSA662](https://www.ipac.caltech.edu/doi/10.26131/IRSA662)); deep fields `*_deep` only as a fallback. [SPHEREx at IRSA](https://irsa.ipac.caltech.edu/Missions/spherex.html), [archive user guide](https://caltech-ipac.github.io/spherex-archive-documentation/), [tutorials](https://caltech-ipac.github.io/irsa-tutorials/spherex-intro/) |
 | **Gaia DR3** (ESA) | Reference positions and proper motions of Barnard's Star, Epsilon Indi B, RW Aurigae and R Draconis, propagated to each SPHEREx exposure date | [Gaia archive](https://gea.esac.esa.int/archive/); Gaia Collaboration, Vallenari et al. 2023, A&A 674, A1 |
 | **WISE** (NASA) | Reference position of WISE 0855-0714 (from its WISE designation, epoch ~2010.4); proper motion from Luhman & Esplin (2016, AJ 152, 78) | [WISE at IRSA](https://irsa.ipac.caltech.edu/Missions/wise.html) |
-| **SIMBAD** (CDS, Strasbourg Astronomical Observatory, France) | Catalogued objects (identifier, type, position, proper motion, magnitude, bibliographic references) marked on the SPHEREx images, with positions propagated to the observation date | TAP service `https://simbad.cds.unistra.fr/simbad/sim-tap`; Wenger et al. 2000, A&AS 143, 9 ([DOI 10.1051/aas:2000332](https://doi.org/10.1051/aas:2000332)); [SIMBAD](https://simbad.cds.unistra.fr/simbad/). Only `GET /api/v1/catalog-objects` uses it, and carries it in its own `data_credits` |
+| **SIMBAD** (CDS, Strasbourg Astronomical Observatory, France) | Catalogued objects (identifier, type, position, proper motion, magnitude, bibliographic references) marked on the SPHEREx images, with positions propagated to the observation date | TAP service `https://simbad.cds.unistra.fr/simbad/sim-tap`; Wenger et al. 2000, A&AS 143, 9 ([DOI 10.1051/aas:2000332](https://doi.org/10.1051/aas:2000332)); [SIMBAD](https://simbad.cds.unistra.fr/simbad/). Only `GET /api/v1/catalog-objects` uses it: it is in that endpoint's `data_credits` and in `GET /credits`, not in `/sky-patch` or `/spectrum` |
 
 Gaia/WISE catalogue overlays in the viewer are drawn by the frontend (Aladin Lite), not by this API.
 
 SPHEREx acknowledgement, as requested by IRSA ([source](https://irsa.ipac.caltech.edu/Missions/spherex.html)):
 
 > This publication makes use of data products from the Spectro-Photometer for the History of the Universe, Epoch of Reionization and Ices Explorer (SPHEREx), which is a joint project of the Jet Propulsion Laboratory and the California Institute of Technology, and is funded by the National Aeronautics and Space Administration.
+
+SIMBAD acknowledgement, as requested on the SIMBAD home page ([mirror](https://simbad.cfa.harvard.edu/simbad/), read 2026-11-15 while the CDS host was down):
+
+> This research has made use of the SIMBAD database, operated at CDS, Strasbourg, France
 
 Software: FastAPI, Astropy, Astroquery/PyVO, reproject, NumPy, OpenCV, Matplotlib, Pillow.
 
