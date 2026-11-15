@@ -577,12 +577,14 @@ Contract and examples: [docs/wow-contract.md](docs/wow-contract.md).
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `SIMBAD_TAP_URL` | `https://simbad.cds.unistra.fr/simbad/sim-tap/sync` | Synchronous TAP resource (the Harvard mirror is `https://simbad.cfa.harvard.edu/simbad/sim-tap/sync`) |
+| `SIMBAD_TAP_URL` | `https://simbad.cds.unistra.fr/simbad/sim-tap/sync` | Synchronous TAP resource. `render.yaml` sets the official Harvard mirror, `https://simbad.cfa.harvard.edu/simbad/sim-tap/sync` (see the note below) |
 | `SIMBAD_TIMEOUT_S` | `5` | Budget towards SIMBAD |
 | `SIMBAD_RATE_PER_MIN` | `20` | Per IP |
 | `SIMBAD_GLOBAL_QPS` | `3` | Global queries per second towards SIMBAD |
 | `SIMBAD_CACHE_TTL_S` / `SIMBAD_CACHE_MAX_ENTRIES` | `3600` / `500` | In-memory cache |
 | `SIMBAD_FETCH_LIMIT` | `200` | Rows requested per query |
+
+**Why the mirror in production.** On 2026-11-15 the CDS host answered HTTP 404 ("Page unavailable") to a TAP query, during a CDS security incident, while the Harvard mirror answered normally. `render.yaml` therefore sets `SIMBAD_TAP_URL` to the mirror. To go back to CDS, change that variable (or remove it: the code default is the CDS host). The mirror's data were ingested up to 2026-10-14.
 
 Full contract, real examples and interface rules: [docs/wow-contract.md](docs/wow-contract.md#5-objetos-catalogados-en-simbad-get-apiv1catalog-objects).
 
