@@ -135,7 +135,7 @@ def submit_live_job(
                     result = fallback(exc)
                 except NoCachedData:
                     raise exc from None
-                jobs.report(job_id, "done", 1.0, result.fallback_message or "Datos en caché")
+                jobs.report(job_id, "done", 1.0, result.fallback_message or "Cached data")
                 return result
 
         background_tasks.add_task(jobs.run, job_id, run)

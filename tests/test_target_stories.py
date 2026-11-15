@@ -47,13 +47,13 @@ def test_distances_follow_from_the_parallax(targets, key, ly, years):
     assert t["distance_ly"] == pytest.approx(ly, abs=0.01)
     assert t["distance_ly"] == pytest.approx(1000 / STORIES[key].parallax_mas * LY_PER_PC, abs=0.01)
     assert t["light_left_years_ago"] == years
-    assert f" {years} años" in t["story_es"]
+    assert f" {years:,} years ago" in t["story_es"]
 
 
 def test_unreliable_parallaxes_are_flagged_and_worded_as_approximate(targets):
     for key in ("R_DRACONIS", "RW_AURIGAE"):
         assert targets[key]["distance_uncertain"] is True
-        assert "aproximadamente" in targets[key]["story_es"]
+        assert "roughly" in targets[key]["story_es"]
     for key in ("BARNARDS_STAR", "EPSILON_INDI_B", "WISE_0855"):
         assert targets[key]["distance_uncertain"] is False
 

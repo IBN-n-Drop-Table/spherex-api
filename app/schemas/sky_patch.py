@@ -36,14 +36,14 @@ FALLBACK_REASON_DOC = ("Added field. Machine-readable cause when `fallback` is t
 # Response-level data quality, set when the response is served (app/core/science_notes.py).
 ResponseQuality = Literal["unvalidated", "low"]
 SCIENCE_NOTE_DOC = ("Added field, set when served. What can and cannot be claimed from this object's "
-                    "data (Spanish, for the UI). null when there is nothing to add")
+                    "data (English, for the UI). null when there is nothing to add")
 DATA_CREDITS_DOC = ("Added field, set when served. Data this response comes from: SPHEREx DR1/QR3 "
                     "(with DOIs), Gaia DR3, WISE. Same citations as GET /credits and the README")
 QUALITY_DOC = ("Added field, set when served. `unvalidated`: the measurement is known to be contaminated "
                "(see science_note); `low`: the target core saturates SPHEREx. null: not flagged")
 
-DETECTION_LABEL = "Detección Asistida por Software (BETA)"
-DETECTION_NOTICE = "Anomalía detectada por software: requiere verificación humana"
+DETECTION_LABEL = "Software-Assisted Detection (BETA)"
+DETECTION_NOTICE = "Anomaly detected by software: requires human verification"
 _IMAGE_FORMAT_DOC = "Format of the image URLs (`png` for rendered cutouts, `fits` for raw IRSA files)"
 
 

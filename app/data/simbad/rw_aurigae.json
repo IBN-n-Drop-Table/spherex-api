@@ -1,0 +1,123 @@
+{
+ "generated": "2026-11-15T00:00:44Z",
+ "tap_url": "https://simbad.cfa.harvard.edu/simbad/sim-tap/sync",
+ "target": "RW_AURIGAE",
+ "query": {
+  "ra": 76.957,
+  "dec": 30.401,
+  "radius_deg": 0.0605,
+  "years_since_j2000_max": 26.75,
+  "type_filter": "all",
+  "adql": "SELECT TOP 200 b.main_id, b.otype, o.description AS otype_label, b.ra, b.dec, b.pmra, b.pmdec, b.nbref, f.V, f.G, f.R, f.J, f.H, f.K\nFROM basic AS b\nLEFT JOIN otypedef AS o ON b.otype = o.otype\nLEFT JOIN allfluxes AS f ON b.oid = f.oidref\nWHERE CONTAINS(POINT('ICRS', b.ra, b.dec), CIRCLE('ICRS', 76.957000, 30.401000, 0.142236)) = 1 AND (CONTAINS(POINT('ICRS', b.ra, b.dec), CIRCLE('ICRS', 76.957000, 30.401000, 0.060500)) = 1 OR DISTANCE(POINT('ICRS', b.ra, b.dec), POINT('ICRS', 76.957000, 30.401000)) <= 0.060500 + SQRT(POWER(b.pmra, 2) + POWER(b.pmdec, 2)) / 3600000.0 * 26.7500)\nORDER BY nbref DESC"
+ },
+ "objects": [
+  {
+   "main_id": "V* RW Aur",
+   "otype": "TT*",
+   "otype_label": "T Tauri Star",
+   "ra": 76.95652603458333,
+   "dec": 30.401438173888888,
+   "pmra": 7.23,
+   "pmdec": -20.33,
+   "nbref": 828,
+   "mag": 9.6,
+   "mag_band": "V"
+  },
+  {
+   "main_id": "V* RW Aur A",
+   "otype": "Or*",
+   "otype_label": "Orion Variable",
+   "ra": 76.95606758838,
+   "dec": 30.401326356130003,
+   "pmra": 2.641,
+   "pmdec": -27.398,
+   "nbref": 45,
+   "mag": 12.184072,
+   "mag_band": "G"
+  },
+  {
+   "main_id": "V* RW Aur B",
+   "otype": "Or*",
+   "otype_label": "Orion Variable",
+   "ra": 76.95651903038,
+   "dec": 30.40142538337,
+   "pmra": 4.906,
+   "pmdec": -24.578,
+   "nbref": 28,
+   "mag": 13.033747,
+   "mag_band": "G"
+  },
+  {
+   "main_id": "ZTF J050734.89+302305.2",
+   "otype": "EB*",
+   "otype_label": "Eclipsing Binary",
+   "ra": 76.89542245956457,
+   "dec": 30.384755243561113,
+   "pmra": 0.463,
+   "pmdec": -1.094,
+   "nbref": 3,
+   "mag": 18.189123,
+   "mag_band": "G"
+  },
+  {
+   "main_id": "Gaia DR3 156431440590447744",
+   "otype": "*",
+   "otype_label": "Star",
+   "ra": 76.97691375445291,
+   "dec": 30.455475336360834,
+   "pmra": 22.581,
+   "pmdec": -4.169,
+   "nbref": 2,
+   "mag": 20.862349,
+   "mag_band": "G"
+  },
+  {
+   "main_id": "ZTF J050801.72+302240.0",
+   "otype": "BY*",
+   "otype_label": "BY Dra Variable",
+   "ra": 77.00718,
+   "dec": 30.377779999999994,
+   "pmra": null,
+   "pmdec": null,
+   "nbref": 2,
+   "mag": null,
+   "mag_band": null
+  },
+  {
+   "main_id": "2MASS J05073524+3024470",
+   "otype": "*",
+   "otype_label": "Star",
+   "ra": 76.89684604558,
+   "dec": 30.413050306750005,
+   "pmra": -1.363,
+   "pmdec": -5.345,
+   "nbref": 1,
+   "mag": 12.901,
+   "mag_band": "V"
+  },
+  {
+   "main_id": "1RXS J050754.4+302214",
+   "otype": "X",
+   "otype_label": "X-ray Source",
+   "ra": 76.97667083333332,
+   "dec": 30.370561111111112,
+   "pmra": null,
+   "pmdec": null,
+   "nbref": 0,
+   "mag": null,
+   "mag_band": null
+  },
+  {
+   "main_id": "1RXS J050746.3+302419",
+   "otype": "X",
+   "otype_label": "X-ray Source",
+   "ra": 76.94292083333333,
+   "dec": 30.405419444444444,
+   "pmra": null,
+   "pmdec": null,
+   "nbref": 0,
+   "mag": null,
+   "mag_band": null
+  }
+ ]
+}

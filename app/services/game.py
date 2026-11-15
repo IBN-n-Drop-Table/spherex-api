@@ -56,9 +56,9 @@ SPEED_WINDOW_MS = 30_000
 GRID_FRACTIONS = (0.2, 0.35, 0.5, 0.65, 0.8)
 J2000 = datetime(2000, 1, 1, 12, tzinfo=UTC)
 
-SCORING_ES = (
-    "Fallo (más de 20 píxeles del camino del objeto): 0 puntos. Acierto: 500 puntos, más hasta "
-    "300 por precisión y hasta 200 por rapidez (si respondes en menos de 30 s). Máximo 1000 por ronda."
+SCORING_ES = (  # user-facing: English
+    "Miss (more than 20 pixels from the object's path): 0 points. Hit: 500 points, plus up to 300 "
+    "for precision and up to 200 for speed (if you answer in under 30 s). Up to 1000 per round."
 )
 
 
@@ -110,8 +110,8 @@ def round_score(distance_px: float, time_ms: int) -> int:
     return round(500 + 300 * precision + 200 * speed)
 
 
-def _es_number(value: float, decimals: int) -> str:
-    return f"{value:.{decimals}f}".replace(".", ",")
+def _number(value: float, decimals: int) -> str:
+    return f"{value:.{decimals}f}"
 
 
 # --------------------------------------------------------------------------- #
@@ -299,16 +299,16 @@ class Session:
 
 def explanation(pair: PairSpec, hit: bool, distance_px: float) -> str:
     name = pair.target.name
-    shift = _es_number(pair.expected_shift_arcsec, 1)
+    shift = _number(pair.expected_shift_arcsec, 1)
     days = round(pair.delta_t_days)
     pixels = round(pair.shift_px)
-    lead = "¡Lo encontraste! " if hit else f"Esta vez no: el objeto estaba a {round(distance_px)} píxeles de tu marca. "
-    text = (f"{lead}{name} se desplazó unos {shift}″ en {days} días ({pixels} píxeles en esta imagen), "
-            "según su movimiento propio medido por Gaia DR3; su posición en estas imágenes de SPHEREx "
-            "coincide con esa predicción.")
+    lead = "You found it! " if hit else f"Not this time: the object was {round(distance_px)} pixels from your mark. "
+    text = (f"{lead}{name} moved about {shift}″ in {days} days ({pixels} pixels in this image), "
+            "according to its proper motion measured by Gaia DR3; its position in these SPHEREx "
+            "images matches that prediction.")
     if pair.weak_signal:
-        text += (f" Es menos de un píxel de SPHEREx ({_es_number(SPHEREX_PIXEL_ARCSEC, 2)}″), "
-                 "por eso en el parpadeo apenas se nota.")
+        text += (f" That is less than one SPHEREx pixel ({_number(SPHEREX_PIXEL_ARCSEC, 2)}″), "
+                 "which is why it barely shows in the blink.")
     return text
 
 

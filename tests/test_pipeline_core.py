@@ -140,7 +140,7 @@ def test_light_curve_uses_only_channels_every_visit_shares(gp):
     point = gp.light_curve_point(ep, spec, {(1, 0)})
     assert point["flux_mjy_sr"] == pytest.approx(2.0) and point["note"] is None
     point = gp.light_curve_point(ep, spec, {(5, 3)})  # nothing in common: own channels, flagged
-    assert point["flux_mjy_sr"] == pytest.approx(51.0) and "aproximada" in point["note"]
+    assert point["flux_mjy_sr"] == pytest.approx(51.0) and "approximate" in point["note"]
 
 
 # --------------------------------------------------------------------------- #

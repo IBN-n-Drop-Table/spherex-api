@@ -11,6 +11,7 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 from app.core.credits import DATA_CREDITS
+from app.core.legacy_text import to_english
 from app.schemas.credits import DataCredit
 from app.core.science_notes import SATURATED_LIGHT_CURVE_NOTE, SCIENCE_NOTES, ScienceNote
 from app.schemas.sky_patch import LightCurvePoint, SkyPatchResponse, SpectralBand
@@ -81,6 +82,7 @@ def annotate_spectrum(spectrum: SpectrumResponse) -> SpectrumResponse:
 def annotate(model: BaseModel) -> BaseModel:
     """Any response model -> the same model with its serve-time annotations
     (science notes, quality, and the data credits every patch/spectrum carries)."""
+    model = to_english(model)  # stored Spanish texts of the Golden Path (app/core/legacy_text.py)
     if isinstance(model, SkyPatchResponse):
         model = annotate_patch(model)
     elif isinstance(model, SpectrumResponse):

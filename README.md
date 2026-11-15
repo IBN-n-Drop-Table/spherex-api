@@ -75,6 +75,7 @@ Full, always up-to-date schema: **`/docs`**. A real response is in [`docs/contra
 | `GET` | `/api/v1/spectrum` | 102-band spectrum of a target, an anomaly or a position |
 | `GET`/`POST` | `/api/v1/reports` | Community feed |
 | `POST` | `/api/v1/reports/{id}/verify` | Peer confirmation |
+| `GET` | `/api/v1/catalog-objects` | Objects catalogued in SIMBAD, projected to pixels on the sky-patch image (catalogue entries, not SPHEREx detections) |
 | `GET` | `/credits` (also `/api/v1/credits`) | Data used: SPHEREx DR1/QR3 (DOIs), Gaia DR3, WISE citations and the SPHEREx acknowledgement |
 | `GET` | `/health` | Service status |
 
@@ -485,6 +486,7 @@ Everything the API serves comes from public archives. Nothing is simulated: wher
 | **SPHEREx** (NASA/JPL/Caltech), served by **IRSA/IPAC** | All images, difference images, spectra and light curves: Level 2 Spectral Images (MEF), downloaded as server-side cutouts | SIA2 `https://irsa.ipac.caltech.edu/SIA`, collections `spherex_dr1` ([DOI 10.26131/IRSA678](https://www.ipac.caltech.edu/doi/10.26131/IRSA678)) and `spherex_qr3` ([DOI 10.26131/IRSA662](https://www.ipac.caltech.edu/doi/10.26131/IRSA662)); deep fields `*_deep` only as a fallback. [SPHEREx at IRSA](https://irsa.ipac.caltech.edu/Missions/spherex.html), [archive user guide](https://caltech-ipac.github.io/spherex-archive-documentation/), [tutorials](https://caltech-ipac.github.io/irsa-tutorials/spherex-intro/) |
 | **Gaia DR3** (ESA) | Reference positions and proper motions of Barnard's Star, Epsilon Indi B, RW Aurigae and R Draconis, propagated to each SPHEREx exposure date | [Gaia archive](https://gea.esac.esa.int/archive/); Gaia Collaboration, Vallenari et al. 2023, A&A 674, A1 |
 | **WISE** (NASA) | Reference position of WISE 0855-0714 (from its WISE designation, epoch ~2010.4); proper motion from Luhman & Esplin (2016, AJ 152, 78) | [WISE at IRSA](https://irsa.ipac.caltech.edu/Missions/wise.html) |
+| **SIMBAD** (CDS, Strasbourg Astronomical Observatory, France) | Catalogued objects (identifier, type, position, proper motion, magnitude, bibliographic references) marked on the SPHEREx images, with positions propagated to the observation date | TAP service `https://simbad.cds.unistra.fr/simbad/sim-tap`; Wenger et al. 2000, A&AS 143, 9 ([DOI 10.1051/aas:2000332](https://doi.org/10.1051/aas:2000332)); [SIMBAD](https://simbad.cds.unistra.fr/simbad/). Only `GET /api/v1/catalog-objects` uses it, and carries it in its own `data_credits` |
 
 Gaia/WISE catalogue overlays in the viewer are drawn by the frontend (Aladin Lite), not by this API.
 
@@ -555,6 +557,30 @@ Contract and examples: [docs/wow-contract.md](docs/wow-contract.md).
 | `GAME_SALT` | random per process | Salt for crop file names |
 
 `GET /api/v1/targets` also carries distances and plain-language texts for the subtitles: `distance_ly`, `distance_source`, `light_left_years_ago`, `distance_uncertain`, `description_es` and `story_es`. They are derived from cited parallaxes in `app/core/target_stories.py`.
+
+## Loading phrases
+
+`GET /api/v1/loading-phrases` returns light-hearted English phrases for loading screens, grouped as `generic`, `cold_start`, `subtraction`, `game` and `chat`. They live in `app/core/loading_phrases.py`, which imports nothing else from the app, so the endpoint answers even while the database, the AI providers or the cached data are unavailable (for example while a free Render instance wakes up). Responses carry `Cache-Control: public, max-age=3600`. New phrases must not claim anything we cannot back up. Example: [docs/wow-contract.md](docs/wow-contract.md#4-frases-de-carga-get-apiv1loading-phrases).
+
+## Catalogue objects (SIMBAD)
+
+`GET /api/v1/catalog-objects?target=BARNARDS_STAR` (or `ra`+`dec`) returns the objects SIMBAD catalogues inside the sky-patch image, already in image pixels (origin top-left, +y down), most-cited first. Options: `max_n` (default 20, max 50), `type_filter` (`all`, `no_common_stars`, `ir_galaxies`), `epoch` (Golden Path visit). They are labelled "catalogued in SIMBAD": they are **not** SPHEREx detections.
+
+- **Query.** One synchronous TAP query (ADQL, JSON): `CONTAINS(POINT('ICRS', ra, dec), CIRCLE(...)) = 1` around the image centre, radius = half the image diagonal, with `pmra`, `pmdec` and the object type. The cone is widened for proper motion (Barnard's Star is ~6 arcmin from its J2000 position in 2026, more than the patch radius) and each row is kept only if its own proper motion can bring it into the image.
+- **Proper motion.** SIMBAD positions are J2000; each one is propagated to the visit date (`epoch_applied`) before projecting with the WCS of the PNG that `/sky-patch` serves. Without proper motion in SIMBAD the position is not moved and `proper_motion_applied` is `false`.
+- **Reliability.** 5 s towards SIMBAD. If it fails, the in-memory result (1 h TTL, even stale), then the precomputed file in `app/data/simbad/` (made by `scripts/generate_simbad_golden.py`), then an empty list, with `source`, `fallback_reason` and an English `fallback_message`. Per-IP limit (20/min) and a global cap of 3 queries/s towards SIMBAD.
+- **Tests** never use the network: SIMBAD is faked. The Golden Path files and the type list in `tests/simbad_otypes_known.txt` are real SIMBAD answers (via its Harvard mirror, 2026-11-15).
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `SIMBAD_TAP_URL` | `https://simbad.cds.unistra.fr/simbad/sim-tap/sync` | Synchronous TAP resource (the Harvard mirror is `https://simbad.cfa.harvard.edu/simbad/sim-tap/sync`) |
+| `SIMBAD_TIMEOUT_S` | `5` | Budget towards SIMBAD |
+| `SIMBAD_RATE_PER_MIN` | `20` | Per IP |
+| `SIMBAD_GLOBAL_QPS` | `3` | Global queries per second towards SIMBAD |
+| `SIMBAD_CACHE_TTL_S` / `SIMBAD_CACHE_MAX_ENTRIES` | `3600` / `500` | In-memory cache |
+| `SIMBAD_FETCH_LIMIT` | `200` | Rows requested per query |
+
+Full contract, real examples and interface rules: [docs/wow-contract.md](docs/wow-contract.md#5-objetos-catalogados-en-simbad-get-apiv1catalog-objects).
 
 ## License
 

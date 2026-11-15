@@ -23,7 +23,7 @@ def get_chat_limiter() -> SlidingWindowLimiter:
 @router.post(
     "/chat",
     response_model=ChatResponse,
-    summary="AI assistant that explains what the user sees (Spanish)",
+    summary="AI assistant that explains what the user sees (answers in English)",
     description="Groq first, DeepSeek as backup (8 s each). If both fail, there are no keys or "
     "the daily cap is reached, a canned answer comes back with `fallback: true`: this endpoint "
     "never returns 5xx because of a provider. 429 with Retry-After when a client asks too often.",
@@ -39,7 +39,7 @@ async def chat(
 
 
 @router.get("/chat/suggestions", response_model=ChatSuggestions,
-            summary="4 suggested questions (Spanish) for a target, or generic ones")
+            summary="4 suggested questions (English) for a target, or generic ones")
 def chat_suggestions(
     target: Annotated[str | None, Query(description="Target key or name, e.g. BARNARDS_STAR")] = None,
 ) -> ChatSuggestions:

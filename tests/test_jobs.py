@@ -197,7 +197,7 @@ def test_polling_a_lost_job_says_so_in_the_unified_format():
         app.dependency_overrides.clear()
     assert res.status_code == 404
     assert res.json() == {
-        "detail": "El análisis se perdió por un reinicio del servidor; vuelve a lanzarlo.",
+        "detail": "The analysis was lost because the server restarted. Please start it again.",
         "code": "job_not_found",
         "errors": None,
     }

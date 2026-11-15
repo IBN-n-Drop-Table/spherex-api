@@ -63,3 +63,17 @@ SPHEREX_ACKNOWLEDGEMENT = (
 ACKNOWLEDGEMENT_SOURCE = "https://irsa.ipac.caltech.edu/Missions/spherex.html"
 
 SOFTWARE = ["FastAPI", "Astropy", "Astroquery/PyVO", "reproject", "NumPy", "OpenCV", "Matplotlib", "Pillow"]
+
+# SIMBAD/CDS: served by /catalog-objects only (kept out of DATA_CREDITS so that /credits and the other
+# responses stay unchanged). The README's "Data used" section carries the same wording (tests/test_catalog_objects.py).
+SIMBAD_CREDIT: dict = {
+    "id": "simbad",
+    "source": "SIMBAD astronomical database, CDS, Strasbourg Astronomical Observatory, France",
+    "dataset": "SIMBAD",
+    "used_for": "Catalogued objects (identifier, type, position, proper motion, magnitude, bibliographic "
+                "references) marked on the SPHEREx images, with positions propagated to the observation date",
+    "citation": "Wenger et al. 2000, A&AS 143, 9",
+    "doi": "10.1051/aas:2000332",
+    "url": "https://simbad.cds.unistra.fr/simbad/",
+    "access": "https://simbad.cds.unistra.fr/simbad/sim-tap",
+}

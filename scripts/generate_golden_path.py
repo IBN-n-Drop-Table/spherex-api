@@ -141,8 +141,8 @@ STACK_MASK_FLAGS = ARTIFACT_FLAGS | {"TRANSIENT", "OVERFLOW", "SUR_ERROR", "MISS
 # PNGs (display only) but EXCLUDED from stacks used for measurements.
 SATURATION_FLAGS = {"OVERFLOW", "BLOOM"}
 DISPLAY_MASK_FLAGS = STACK_MASK_FLAGS - SATURATION_FLAGS
-SATURATED_MESSAGE = ("El núcleo de la fuente satura SPHEREx (flags OVERFLOW/BLOOM): esos píxeles "
-                     "se muestran en las imágenes pero se excluyen del espectro y de la curva de luz.")
+SATURATED_MESSAGE = ("The source core saturates SPHEREx (OVERFLOW/BLOOM flags): those pixels are "
+                     "shown in the images but excluded from the spectrum and the light curve.")
 # Used only if an exposure's FLAGS header carries no MSKNnnnn keywords.
 DEFAULT_FLAG_BITS = {0: "TRANSIENT", 19: "OUTLIER", 21: "SOURCE", 26: "BLOOM", 27: "SNOWBALL"}
 
@@ -647,7 +647,7 @@ class DownloadProgress:
         rate = elapsed / done  # observed seconds per cutout (all workers)
         remaining = max(0, round(rate * (self.total - done)))
         self.progress("download", 0.05 + 0.80 * done / self.total,
-                      f"Descargando recortes de IRSA: {done}/{self.total} (~{remaining} s restantes)")
+                      f"Downloading IRSA cutouts: {done}/{self.total} (~{remaining} s left)")
 
 
 def process_rows(rows: Table, target: Target, ref_wcs: WCS, ref_shape, args, label: str,
@@ -1085,13 +1085,13 @@ def light_curve_point(epoch: EpochProduct, spec: dict, common: set) -> dict:
     point = {"epoch_id": epoch.epoch_id, "date": epoch.when.date().isoformat(),
              "flux_mjy_sr": None, "variance": None, "note": None}
     if not spec:
-        point["note"] = ("Sin fotometría válida: el núcleo satura SPHEREx (OVERFLOW/BLOOM)"
-                         if epoch.saturated else "Sin fotometría válida en el centro en esta visita")
+        point["note"] = ("No valid photometry: the core saturates SPHEREx (OVERFLOW/BLOOM)"
+                         if epoch.saturated else "No valid photometry at the center in this visit")
         return point
     keys = common & set(spec)
     if not keys:
         keys = set(spec)
-        point["note"] = "Sin canales comunes con las otras visitas: media de sus propios canales (aproximada)"
+        point["note"] = "No channels in common with the other visits: mean of its own channels (approximate)"
     fluxes = [spec[k]["flux_mjy_sr"] for k in keys]
     variances = [spec[k]["variance"] for k in keys]
     point["flux_mjy_sr"] = sig(float(np.mean(fluxes)))
@@ -1108,7 +1108,7 @@ def build_payload(target: Target, uploader: StorageUploader, args, cached: bool 
     (image URLs relative to the API, see app/core/urls.py)."""
     progress = progress or _no_progress
     log.info("=== %s (%s) ===", target.name, target.key)
-    progress("query", 0.02, "Consultando el archivo de IRSA (metadatos SPHEREx)...")
+    progress("query", 0.02, "Querying the IRSA archive (SPHEREx metadata)...")
     visits = find_epoch_rows(target, args)
     times, ids = visit_ids(visits)  # from the FULL visits, so /epochs and sky-patch agree
     visits = [subsample_per_detector(subsample(v, args.max_exposures_per_epoch), args.max_per_detector)
@@ -1120,8 +1120,8 @@ def build_payload(target: Target, uploader: StorageUploader, args, cached: bool 
                  n_cached, n_listed, n_cutouts - n_cached)
     eta = round(math.ceil(n_cutouts / max(args.workers, 1)) * args.seconds_per_cutout + 10)
     progress("download", 0.05,
-             f"{len(visits)} visitas de SPHEREx encontradas. Descargando {n_cutouts} recortes de IRSA "
-             f"(~{eta} s estimados). Procesamiento en vivo: tarda, no es instantáneo.")
+             f"{len(visits)} SPHEREx visits found. Downloading {n_cutouts} IRSA cutouts "
+             f"(~{eta} s estimated). Live processing takes a while: it is not instant.")
 
     t1 = times[0]
     for eid, t, v in zip(ids, times, visits):
@@ -1135,7 +1135,7 @@ def build_payload(target: Target, uploader: StorageUploader, args, cached: bool 
     counter = DownloadProgress(n_cutouts, args.workers, progress, args.seconds_per_cutout)
     epochs = [EpochProduct.build(eid, process_rows(v, target, ref_wcs, ref_shape, args, eid, counter))
               for eid, v in zip(ids, visits)]
-    progress("stack", 0.88, "Apilando por visita y detector...")
+    progress("stack", 0.88, "Stacking by visit and detector...")
 
     # Difference: first vs last visit (longest baseline = most motion). Broadband
     # = mean of per-detector median stacks over the detectors both visits share,
@@ -1150,7 +1150,7 @@ def build_payload(target: Target, uploader: StorageUploader, args, cached: bool 
     # The PNG uses the display stacks (saturated cores visible); detection uses the clean ones.
     diff_display = e2.stack_of(common_dets, display=True)[0] - e1.stack_of(common_dets, display=True)[0]
 
-    progress("render", 0.93, "Generando imágenes, resta y espectro...")
+    progress("render", 0.93, "Rendering images, difference and spectrum...")
     size = args.png_size
     slug = target.slug
     epochs_json = []
@@ -1184,7 +1184,7 @@ def build_payload(target: Target, uploader: StorageUploader, args, cached: bool 
     anomalies = detect_anomalies(diff, diff_var, e1, e2, ref_wcs, args)
     log.info("Difference imaging: %d anomalies above %.1f sigma", len(anomalies), args.snr_threshold)
     if len(epochs) >= 3:
-        progress("difference", 0.95, "Calculando restas entre épocas consecutivas...")
+        progress("difference", 0.95, "Computing differences between consecutive epochs...")
     pairwise = pairwise_differences(epochs, target, uploader, slug, size)
 
     specs = [binned_spectrum(target_samples(e.exposures)) for e in epochs]
@@ -1194,7 +1194,7 @@ def build_payload(target: Target, uploader: StorageUploader, args, cached: bool 
     spectrum = sorted(specs[best].values(), key=lambda b: b["wavelength_um"])
     saturated = any(e.saturated for e in epochs)
     if not spectrum:
-        message = SATURATED_MESSAGE if saturated else "Sin fotometría válida en el centro del parche."
+        message = SATURATED_MESSAGE if saturated else "No valid photometry at the center of the patch."
     elif saturated:
         message = SATURATED_MESSAGE
     else:
@@ -1203,7 +1203,7 @@ def build_payload(target: Target, uploader: StorageUploader, args, cached: bool 
              len(spectrum), epochs[best].epoch_id, len(common_channels), saturated)
 
     # Keep the last stage reached, so a polling client never sees it go backwards.
-    progress("difference" if len(epochs) >= 3 else "render", 0.99, "Listo.")
+    progress("difference" if len(epochs) >= 3 else "render", 0.99, "Done.")
     return {
         "target_info": {
             "name": target.name,

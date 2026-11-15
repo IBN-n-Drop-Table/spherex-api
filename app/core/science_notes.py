@@ -19,26 +19,25 @@ Quality = Literal["unvalidated", "low"]
 
 @dataclass(frozen=True)
 class ScienceNote:
-    science_note: str  # shown with the sky patch and the target spectrum (Spanish)
+    science_note: str  # shown with the sky patch and the target spectrum (English)
     quality: Quality | None = None  # response-level quality; None = not flagged here
     light_curve_note: str | None = None  # added to every light-curve point
 
 
 WISE_0855_NOTE = (
-    "Datos sin validar. En la banda ancha, WISE 0855 está mezclado con una estrella fija vecina "
-    "(a ~11″), que domina en 1 µm: el espectro y la curva de luz de este parche no deben "
-    "interpretarse como una detección ni como el espectro de una enana Y. Su movimiento solo está "
-    "confirmado en el detector 6 (4,4–5 µm): el centroide se desplaza 7,9″ al oeste entre la primera "
-    "y la última visita, frente a 8,05″ esperados. Sí se puede afirmar que el parche sigue su "
-    "movimiento propio: está centrado en su posición de la primera visita, ~2′ al oeste de la "
-    "posición de catálogo de 2010."
+    "Unvalidated data. In the broadband images WISE 0855 is blended with a neighboring fixed star "
+    "(~11″ away) that dominates at 1 µm: the spectrum and light curve of this patch must not be "
+    "read as a detection or as the spectrum of a Y dwarf. Its motion is confirmed only in "
+    "detector 6 (4.4–5 µm): the centroid moves 7.9″ west between the first and the last visit, "
+    "against 8.05″ expected. What can be said is that the patch follows its proper motion: it is "
+    "centered on its position at the first visit, ~2′ west of its 2010 catalog position."
 )
 
 # Any response with `saturated: true` (cached or live) gets this on every light-curve
 # point that has a flux: photometry used only the unsaturated pixels of the aperture.
 SATURATED_LIGHT_CURVE_NOTE = (
-    "Límite inferior sesgado: el núcleo satura SPHEREx y solo se miden los píxeles no saturados de la "
-    "apertura. No sirve para afirmar variabilidad."
+    "Biased lower limit: the core saturates SPHEREx and only the unsaturated pixels of the "
+    "aperture are measured. It cannot be used to claim variability."
 )
 
 SCIENCE_NOTES: dict[str, ScienceNote] = {
@@ -46,35 +45,36 @@ SCIENCE_NOTES: dict[str, ScienceNote] = {
         science_note=WISE_0855_NOTE,
         quality="unvalidated",
         light_curve_note=(
-            "Sin validar: el flujo está mezclado con una estrella fija vecina (a ~11″); no indica la "
-            "variabilidad de WISE 0855."
+            "Unvalidated: the flux is blended with a neighboring fixed star (~11″ away); it does not "
+            "show the variability of WISE 0855."
         ),
     ),
     "BARNARDS_STAR": ScienceNote(
         science_note=(
-            "El núcleo satura SPHEREx: no hay espectro ni curva de luz válidos de la estrella. Sí se ve su "
-            "movimiento propio: entre la primera y la última visita su centroide se desplaza 10,3″ hacia el "
-            "norte, frente a 10,2″ esperados."
+            "The core saturates SPHEREx: there is no valid spectrum or light curve of the star. Its "
+            "proper motion does show: between the first and the last visit its centroid moves 10.3″ "
+            "north, against 10.2″ expected."
         ),
         quality="low",
     ),
     "RW_AURIGAE": ScienceNote(
         science_note=(
-            "El núcleo satura SPHEREx: el espectro y la curva de luz se miden solo con los píxeles no "
-            "saturados de la apertura. Son límites inferiores sesgados y no sirven para afirmar variabilidad."
+            "The core saturates SPHEREx: the spectrum and the light curve are measured only with the "
+            "unsaturated pixels of the aperture. They are biased lower limits and cannot be used to "
+            "claim variability."
         ),
         quality="low",
     ),
     "R_DRACONIS": ScienceNote(
         science_note=(
-            "El núcleo satura SPHEREx: no hay espectro ni fotometría válida del núcleo. El oscurecimiento del "
-            "halo entre la primera y la última visita es real (cociente de flujo ~0,56) y coherente con una "
-            "Mira en otra fase de su ciclo."
+            "The core saturates SPHEREx: there is no valid spectrum or photometry of the core. The "
+            "dimming of the halo between the first and the last visit is real (flux ratio ~0.56) and "
+            "consistent with a Mira at another phase of its cycle."
         ),
         quality="low",
         light_curve_note=(
-            "El halo sí se oscurece entre la primera y la última visita (cociente ~0,56), coherente con una "
-            "Mira en otra fase, pero el núcleo está saturado."
+            "The halo does dim between the first and the last visit (ratio ~0.56), consistent with a "
+            "Mira at another phase, but the core is saturated."
         ),
     ),
 }

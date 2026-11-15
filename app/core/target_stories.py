@@ -15,7 +15,10 @@ typed by hand. Parallaxes were checked on 2026-11-14:
 `distance_uncertain` marks the two objects whose parallax is less reliable:
 R Draconis (a pulsating Mira giant whose photocentre wanders; Gaia RUWE 1.30)
 and RW Aurigae (a young binary: RW Aur A has Gaia RUWE 16.4, so we use the
-cleaner parallax of its companion RW Aur B). Their texts say "aproximadamente".
+cleaner parallax of its companion RW Aur B). Their texts say "roughly".
+
+The texts are user-facing, so they are in English, although the API fields
+keep their historical names (`description_es`, `story_es`).
 """
 
 from __future__ import annotations
@@ -52,12 +55,7 @@ class TargetStory:
 
     @property
     def story_es(self) -> str:
-        return self.story_template_es.format(years=_spanish_int(self.light_left_years_ago))
-
-
-def _spanish_int(n: int) -> str:
-    """RAE: no separator up to 4 digits (2600), a thin space from 5 digits on (12 500)."""
-    return str(n) if n < 10_000 else f"{n:,}".replace(",", " ")
+        return self.story_template_es.format(years=f"{self.light_left_years_ago:,}")  # 2,600
 
 
 STORIES: dict[str, TargetStory] = {
@@ -67,10 +65,10 @@ STORIES: dict[str, TargetStory] = {
         distance_source=f"{GAIA_DR3}, source_id 4472832130942575872: parallax 546.976 ± 0.040 mas",
         distance_uncertain=False,
         description_es=(
-            "Una estrella enana roja, pequeña y fría, de las más cercanas al Sol. "
-            "Es la estrella que más rápido se desplaza en nuestro cielo."
+            "A small, cool red dwarf, one of the closest stars to the Sun. "
+            "It is the star that moves fastest across our sky."
         ),
-        story_template_es="La luz que ves salió de esta estrella hace unos {years} años.",
+        story_template_es="The light you see left this star about {years} years ago.",
     ),
     "EPSILON_INDI_B": TargetStory(
         parallax_mas=270.6580324694526,
@@ -78,10 +76,10 @@ STORIES: dict[str, TargetStory] = {
         distance_source=f"{GAIA_DR3}, source_id 6412596012146801152: parallax 270.66 ± 0.69 mas",
         distance_uncertain=False,
         description_es=(
-            "Una pareja de enanas marrones: objetos más grandes que Júpiter pero demasiado "
-            "pequeños para encenderse como una estrella. Giran alrededor de la estrella Epsilon Indi A."
+            "A pair of brown dwarfs: objects bigger than Jupiter but too small to ignite "
+            "like a star. They orbit the star Epsilon Indi A."
         ),
-        story_template_es="La luz que ves salió de estas enanas marrones hace unos {years} años.",
+        story_template_es="The light you see left these brown dwarfs about {years} years ago.",
     ),
     "WISE_0855": TargetStory(
         parallax_mas=439.0,
@@ -92,11 +90,11 @@ STORIES: dict[str, TargetStory] = {
         ),
         distance_uncertain=False,
         description_es=(
-            "Una de las enanas marrones más frías que se conocen: unos 250 kelvin, "
-            "es decir, alrededor de 23 grados bajo cero. Casi no emite luz visible; "
-            "se descubrió gracias al infrarrojo."
+            "One of the coldest brown dwarfs known: about 250 kelvin, roughly "
+            "23 degrees below zero Celsius. It gives off almost no visible light; "
+            "it was discovered thanks to infrared."
         ),
-        story_template_es="La luz que ves salió de esta enana marrón hace unos {years} años.",
+        story_template_es="The light you see left this brown dwarf about {years} years ago.",
     ),
     "RW_AURIGAE": TargetStory(
         parallax_mas=6.406249329219477,
@@ -108,12 +106,12 @@ STORIES: dict[str, TargetStory] = {
         ),
         distance_uncertain=True,
         description_es=(
-            "Una estrella muy joven, todavía rodeada del disco de gas y polvo en el que se "
-            "forman los planetas. Su brillo cambia de forma irregular."
+            "A very young star, still surrounded by the disk of gas and dust where "
+            "planets form. Its brightness changes irregularly."
         ),
         story_template_es=(
-            "La luz que ves salió de aquí hace aproximadamente {years} años "
-            "(la distancia de este sistema joven es difícil de medir con precisión)."
+            "The light you see left here roughly {years} years ago "
+            "(the distance to this young system is hard to measure precisely)."
         ),
     ),
     "R_DRACONIS": TargetStory(
@@ -125,12 +123,12 @@ STORIES: dict[str, TargetStory] = {
         ),
         distance_uncertain=True,
         description_es=(
-            "Una estrella gigante roja y vieja que se hincha y se encoge: su brillo sube y "
-            "baja en un ciclo de varios meses."
+            "An old red giant star that swells and shrinks: its brightness rises and "
+            "falls over a cycle of several months."
         ),
         story_template_es=(
-            "La luz que ves salió de esta estrella hace aproximadamente {years} años "
-            "(las gigantes que pulsan, como esta, son difíciles de medir)."
+            "The light you see left this star roughly {years} years ago "
+            "(pulsating giants like this one are hard to measure)."
         ),
     ),
 }

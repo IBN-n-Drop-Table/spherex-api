@@ -55,7 +55,7 @@ class GameSession(_Strict):
     session_id: UUID
     expires_at: datetime = Field(description="Extended on every guess")
     rounds: list[GameRound]
-    scoring: str = Field(description="How a round is scored, in Spanish")
+    scoring: str = Field(description="How a round is scored, in English")
 
 
 class NewSession(_Strict):

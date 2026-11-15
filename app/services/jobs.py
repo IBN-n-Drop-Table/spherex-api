@@ -55,7 +55,7 @@ class Job:
     finished_at: float | None = None  # monotonic clock
     stage: str = "queued"
     progress: float = 0.0
-    message: str | None = "En cola..."
+    message: str | None = "Queued..."
     started_at: float | None = None  # monotonic clock
 
     def to_response(self, clock: Callable[[], float] = time.monotonic) -> JobResponse:
@@ -190,7 +190,7 @@ class JobService:
         """Execute a job. Called from a background task (worker thread)."""
         with self._run_slots:
             self._update(job_id, status=JobStatus.RUNNING, stage="query", started_at=self._clock(),
-                         message="Iniciando...")
+                         message="Starting...")
             try:
                 result = work()
             except Exception as exc:

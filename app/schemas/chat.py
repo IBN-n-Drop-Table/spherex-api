@@ -1,4 +1,6 @@
-"""Contract for POST /api/v1/chat and GET /api/v1/chat/suggestions (docs/wow-contract.md)."""
+"""Contract for POST /api/v1/chat and GET /api/v1/chat/suggestions (docs/wow-contract.md).
+
+Every text sent to the user (answer, disclaimer, cautions, suggestions) is in English."""
 
 from __future__ import annotations
 
@@ -13,7 +15,7 @@ MAX_HISTORY_IN = 20  # accepted; only the last HISTORY_KEPT are used
 HISTORY_KEPT = 6
 MAX_HISTORY_CHARS = 1000  # per message, longer ones are cut
 
-DISCLAIMER = "Asistente de IA: puede equivocarse. Los hallazgos requieren verificación humana."
+DISCLAIMER = "AI assistant: it can make mistakes. Any finding requires human verification."
 
 Provider = Literal["groq", "deepseek", "canned"]
 

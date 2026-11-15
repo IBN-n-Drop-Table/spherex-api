@@ -137,7 +137,7 @@ def test_far_away_fallback_says_which_target_it_shows(live_client):
     res = live_client.get("/api/v1/sky-patch", params={"ra": 10.0, "dec": 41.0})
     job = live_client.get(f'/api/v1/jobs/{res.json()["job_id"]}').json()
     assert job["result"]["fallback"] is True
-    assert "más cercano" in job["result"]["fallback_message"]
+    assert "nearest" in job["result"]["fallback_message"]
 
 
 def test_spectrum_fallback(live_client):
@@ -195,17 +195,17 @@ def test_fallback_message_matches_its_reason(live_client):
     msg = result["fallback_message"]
     assert result["fallback_reason"] == "live_processing_unavailable"
     assert "latencia" not in msg and "science stack" not in msg
-    assert "no están precalculadas" in msg and "5 objetos" in msg and "POST /api/v1/jobs" in msg
+    assert "not precomputed" in msg and "5 challenge objects" in msg and "POST /api/v1/jobs" in msg
     assert result["target_info"]["name"] in msg  # says which object is shown instead
 
     live_client.runner.fail = UpstreamUnavailable("NASA/IRSA is unavailable or busy right now (HTTP 503).")
     res = live_client.post("/api/v1/jobs", json={"ra": 12.0, "dec": 41.0})
     result = live_client.get(f'/api/v1/jobs/{res.json()["job_id"]}').json()["result"]
     assert result["fallback_reason"] == "irsa_unavailable"
-    assert result["fallback_message"].startswith(FALLBACK_MESSAGE) and "latencia" in result["fallback_message"]
+    assert result["fallback_message"].startswith(FALLBACK_MESSAGE) and "responding slowly" in result["fallback_message"]
 
 
 def test_epochs_fallback_message_matches_its_reason(live_client):
     live_client.runner.epochs_result = LiveProcessingUnavailable("science stack not installed")
     body = live_client.get("/api/v1/epochs", params={"ra": 10, "dec": 41}).json()
-    assert body["fallback_reason"] == "live_processing_unavailable" and "latencia" not in body["fallback_message"]
+    assert body["fallback_reason"] == "live_processing_unavailable" and "responding slowly" not in body["fallback_message"]

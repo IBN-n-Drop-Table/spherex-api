@@ -20,13 +20,12 @@ from app.services.live import LiveProcessingUnavailable, UpstreamUnavailable
 logger = logging.getLogger(__name__)
 
 # One message per fallback_reason. Only an IRSA problem is "alta latencia".
-FALLBACK_MESSAGE = "Mostrando datos en caché debido a alta latencia en servidores de origen"
+FALLBACK_MESSAGE = "Showing cached data because the source servers are responding slowly"
 LIVE_UNAVAILABLE_MESSAGE = (
-    "Estas coordenadas no están precalculadas y el análisis en vivo no está disponible ahora en este "
-    "servidor. Elige uno de los 5 objetos del reto o vuelve a lanzar un análisis en vivo "
-    "(POST /api/v1/jobs) más tarde"
+    "These coordinates are not precomputed and live analysis is not available on this server right "
+    "now. Pick one of the 5 challenge objects, or start a live analysis (POST /api/v1/jobs) later"
 )
-UNKNOWN_FALLBACK_MESSAGE = "Mostrando datos en caché: el análisis en vivo no pudo completarse"
+UNKNOWN_FALLBACK_MESSAGE = "Showing cached data: the live analysis could not be completed"
 
 
 class NoCachedData(RuntimeError):
@@ -57,18 +56,18 @@ def reason_code(reason: BaseException | str | None) -> FallbackReason:
 
 def message_for(patch: SkyPatchResponse, distance_deg: float | None,
                 reason: BaseException | str | None = None) -> str:
-    """Spanish `fallback_message`, worded for its `fallback_reason`."""
+    """English `fallback_message`, worded for its `fallback_reason`."""
     code = reason_code(reason)
     if code == "live_processing_unavailable":
-        where = f", a {distance_deg:.1f}°" if distance_deg is not None else ""
+        where = f", {distance_deg:.1f}° away" if distance_deg is not None else ""
         # The technical detail (no science stack) is for logs, not for users.
-        return f"{LIVE_UNAVAILABLE_MESSAGE}. Se muestra el objeto precalculado más cercano ({patch.target_info.name}{where})"
+        return f"{LIVE_UNAVAILABLE_MESSAGE}. Showing the nearest precomputed object ({patch.target_info.name}{where})"
     msg = FALLBACK_MESSAGE if code == "irsa_unavailable" else UNKNOWN_FALLBACK_MESSAGE
     if distance_deg is not None and distance_deg > 0.25:
-        msg += (f". No hay datos en caché para estas coordenadas: se muestra el objeto en caché más "
-                f"cercano ({patch.target_info.name}, a {distance_deg:.1f}°)")
+        msg += (f". There is no cached data for these coordinates: showing the nearest cached object "
+                f"({patch.target_info.name}, {distance_deg:.1f}° away)")
     if reason:
-        msg += f". Detalle: {reason}"
+        msg += f". Detail: {reason}"
     return msg
 
 
