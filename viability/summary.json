@@ -1,0 +1,97 @@
+{
+  "positions": 30,
+  "pipeline_ok": 4,
+  "failures": [
+    "IrsaUnavailable: IRSA SIA did not answer within 10 s (HTTP 502)",
+    "IrsaUnavailable: IRSA SIA did not answer within 10 s (ReadTimeout)",
+    "IrsaUnavailable: IRSA SIA did not answer within 10 s (ReadTimeout)",
+    "IrsaUnavailable: IRSA SIA did not answer within 10 s (ReadTimeout)",
+    "IrsaUnavailable: IRSA SIA did not answer within 10 s (ReadTimeout)",
+    "IrsaUnavailable: IRSA SIA did not answer within 10 s (ReadTimeout)",
+    "IrsaUnavailable: IRSA SIA did not answer within 10 s (ReadTimeout)",
+    "IrsaUnavailable: IRSA SIA did not answer within 10 s (ReadTimeout)",
+    "IrsaUnavailable: IRSA SIA did not answer within 10 s (ReadTimeout)",
+    "IrsaUnavailable: IRSA SIA did not answer within 10 s (ReadTimeout)",
+    "IrsaUnavailable: IRSA SIA did not answer within 10 s (ReadTimeout)",
+    "IrsaUnavailable: IRSA SIA did not answer within 10 s (ReadTimeout)",
+    "IrsaUnavailable: IRSA SIA did not answer within 10 s (ReadTimeout)",
+    "IrsaUnavailable: IRSA SIA did not answer within 10 s (ReadTimeout)",
+    "IrsaUnavailable: IRSA SIA did not answer within 10 s (ReadTimeout)",
+    "IrsaUnavailable: IRSA SIA did not answer within 10 s (ReadTimeout)",
+    "IrsaUnavailable: IRSA SIA did not answer within 10 s (ReadTimeout)",
+    "IrsaUnavailable: IRSA SIA did not answer within 10 s (ReadTimeout)",
+    "IrsaUnavailable: IRSA SIA did not answer within 10 s (ReadTimeout)",
+    "IrsaUnavailable: IRSA SIA did not answer within 10 s (ReadTimeout)",
+    "IrsaUnavailable: IRSA SIA did not answer within 10 s (ReadTimeout)",
+    "IrsaUnavailable: IRSA SIA did not answer within 10 s (ReadTimeout)",
+    "IrsaUnavailable: IRSA SIA did not answer within 10 s (ReadTimeout)",
+    "IrsaUnavailable: IRSA SIA did not answer within 10 s (HTTP 502)",
+    "IrsaUnavailable: IRSA SIA did not answer within 10 s (ReadTimeout)",
+    "IrsaUnavailable: IRSA SIA did not answer within 10 s (ReadTimeout)"
+  ],
+  "pct_with_any_candidate": 100.0,
+  "pct_with_clean_candidate": 100.0,
+  "pct_with_real_mover_candidate": 0.0,
+  "pct_with_known_asteroid_in_field": 25.0,
+  "pct_with_pm_star_shift_ge_3arcsec": 0.0,
+  "candidates_per_position": {
+    "min": 3.0,
+    "median": 5.0,
+    "p90": 6.0,
+    "max": 6.0
+  },
+  "pipeline_s_all": {
+    "min": 10.6,
+    "median": 11.2,
+    "p90": 95.3,
+    "max": 113.5
+  },
+  "pipeline_s_ok": {
+    "min": 93.9,
+    "median": 109.7,
+    "p90": 112.9,
+    "max": 113.5
+  },
+  "wall_s_with_subprocess": {
+    "min": 10.8,
+    "median": 11.4,
+    "p90": 120.3,
+    "max": 136.5
+  },
+  "import_s": {
+    "min": 0.6,
+    "median": 0.7,
+    "p90": 0.8,
+    "max": 0.8
+  },
+  "download_stage_s": {
+    "min": 88.5,
+    "median": 103.9,
+    "p90": 106.1,
+    "max": 106.2
+  },
+  "peak_rss_mb": {
+    "min": 156.8,
+    "median": 157.8,
+    "p90": 185.9,
+    "max": 187.7
+  },
+  "n_visits": {
+    "min": 3.0,
+    "median": 3.0,
+    "p90": 3.0,
+    "max": 3.0
+  },
+  "delta_t_days": {
+    "min": 361.2,
+    "median": 365.7,
+    "p90": 367.0,
+    "max": 367.5
+  },
+  "cutouts_used": {
+    "min": 16.0,
+    "median": 16.5,
+    "p90": 17.0,
+    "max": 17.0
+  }
+}
