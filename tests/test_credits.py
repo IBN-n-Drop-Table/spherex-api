@@ -5,13 +5,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from app.core.credits import (
-    CREDITS_SERVED,
-    DATA_CREDITS,
-    SIMBAD_ACKNOWLEDGEMENT,
-    SIMBAD_CREDIT,
-    SPHEREX_ACKNOWLEDGEMENT,
-)
+from app.core.credits import ALL_DATA_CREDITS, DATA_CREDITS, SIMBAD_ACKNOWLEDGEMENT, SIMBAD_CREDIT, SPHEREX_ACKNOWLEDGEMENT
 from app.main import app
 from tests.conftest import load_raw
 
@@ -30,19 +24,18 @@ def test_credits_endpoint(client, path):
     res = client.get(path)
     assert res.status_code == 200
     body = res.json()
-    assert body["data_credits"] == CREDITS_SERVED == DATA_CREDITS + [SIMBAD_CREDIT]
+    assert body["data_credits"] == ALL_DATA_CREDITS == DATA_CREDITS + [SIMBAD_CREDIT]
     assert {c["id"] for c in body["data_credits"]} == {"spherex_dr1", "spherex_qr3", "gaia_dr3", "wise", "simbad"}
-    assert {c["doi"] for c in body["data_credits"] if c["doi"]} == {
-        "10.26131/IRSA678", "10.26131/IRSA662", "10.1051/aas:2000332"}
-    assert body["acknowledgement"] == SPHEREX_ACKNOWLEDGEMENT
-    assert body["simbad_acknowledgement"] == SIMBAD_ACKNOWLEDGEMENT
+    assert {c["doi"] for c in body["data_credits"] if c["doi"]} == {"10.26131/IRSA678", "10.26131/IRSA662",
+                                                                     "10.1051/aas:2000332"}
     simbad = next(c for c in body["data_credits"] if c["id"] == "simbad")
-    assert simbad["citation"] == "Wenger et al. 2000, A&AS 143, 9" and "SIMBAD" in SIMBAD_ACKNOWLEDGEMENT
+    assert simbad["citation"] == "Wenger et al. 2000, A&AS 143, 9"  # checked against SIMBAD's page and Crossref
+    assert body["acknowledgement"] == SPHEREX_ACKNOWLEDGEMENT
 
 
 def test_citations_are_exactly_the_readmes():
     """Every DOI, URL, citation and description is written the same way in README 'Data used'."""
-    for credit in CREDITS_SERVED:
+    for credit in ALL_DATA_CREDITS:
         for key in ("doi", "url", "citation", "access", "used_for"):
             if credit[key]:
                 assert credit[key] in DATA_USED, f"{credit['id']}.{key} not in README: {credit[key]!r}"
@@ -56,7 +49,7 @@ def test_citations_are_exactly_the_readmes():
     ("/api/v1/spectrum", {"target": "EPSILON_INDI_B"}),
 ])
 def test_responses_carry_the_same_credits(client, path, params):
-    assert client.get(path, params=params).json()["data_credits"] == DATA_CREDITS  # SIMBAD is not used here
+    assert client.get(path, params=params).json()["data_credits"] == DATA_CREDITS
 
 
 def test_anomaly_spectra_and_job_results_carry_them_too(client):

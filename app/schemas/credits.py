@@ -22,5 +22,4 @@ class CreditsResponse(BaseModel):
     data_credits: list[DataCredit]
     acknowledgement: str = Field(description="SPHEREx acknowledgement text requested by IRSA")
     acknowledgement_source: str
-    simbad_acknowledgement: str = Field(description="Acknowledgement that CDS asks for when SIMBAD is used")
     software: list[str]

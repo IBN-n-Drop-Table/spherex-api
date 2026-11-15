@@ -64,19 +64,23 @@ ACKNOWLEDGEMENT_SOURCE = "https://irsa.ipac.caltech.edu/Missions/spherex.html"
 
 SOFTWARE = ["FastAPI", "Astropy", "Astroquery/PyVO", "reproject", "NumPy", "OpenCV", "Matplotlib", "Pillow"]
 
-# SIMBAD/CDS: shown by /credits only. It is NOT in DATA_CREDITS, because `data_credits` rides on /sky-patch,
-# /spectrum and job results, which do not use SIMBAD. Only the AI chat does (saved facts, no live query).
+# SIMBAD/CDS: used only by /catalog-objects, so it is kept out of DATA_CREDITS (what /sky-patch and /spectrum
+# cite) and listed by /credits through ALL_DATA_CREDITS. Citation checked on 2026-11-15 against SIMBAD's own page
+# (Harvard mirror: "2000,A&AS,143,9", "The SIMBAD astronomical database", Wenger et al.) and the DOI against
+# Crossref (10.1051/aas:2000332 -> A&AS 143(1), 9-22, 2000). The README's "Data used" section carries the same wording.
 SIMBAD_CREDIT: dict = {
     "id": "simbad",
     "source": "SIMBAD astronomical database, CDS, Strasbourg Astronomical Observatory, France",
     "dataset": "SIMBAD",
-    "used_for": "Catalogued objects near the five challenge objects (identifier, type, magnitude, bibliographic "
-                "references), given to the AI chat as facts",
+    "used_for": "Catalogued objects (identifier, type, position, proper motion, magnitude, bibliographic "
+                "references) marked on the SPHEREx images, with positions propagated to the observation date",
     "citation": "Wenger et al. 2000, A&AS 143, 9",
     "doi": "10.1051/aas:2000332",
     "url": "https://simbad.cds.unistra.fr/simbad/",
-    "access": None,
+    "access": "https://simbad.cds.unistra.fr/simbad/sim-tap",
 }
-SIMBAD_ACKNOWLEDGEMENT = "This research has made use of the SIMBAD database, operated at CDS, Strasbourg, France."
 
-CREDITS_SERVED: list[dict] = DATA_CREDITS + [SIMBAD_CREDIT]  # what GET /credits lists
+SIMBAD_ACKNOWLEDGEMENT = "This research has made use of the SIMBAD database, operated at CDS, Strasbourg, France"
+
+# Everything this API uses: what GET /credits lists.
+ALL_DATA_CREDITS: list[dict] = DATA_CREDITS + [SIMBAD_CREDIT]
