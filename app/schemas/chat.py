@@ -67,6 +67,11 @@ class ChatResponse(BaseModel):
         description="Added field. Cautions derived from the context (science_note, quality low, "
         "saturated, weak_signal, fallback_reason), for the UI to show next to the answer.",
     )
+    sources: list[str] | None = Field(
+        default=None,
+        description="Optional, present only when catalogue data was used: [\"SIMBAD\"]. The key is "
+        "absent otherwise. SIMBAD facts are catalogue entries, never SPHEREx detections.",
+    )
 
 
 class ChatSuggestions(BaseModel):

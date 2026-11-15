@@ -23,6 +23,7 @@ def get_chat_limiter() -> SlidingWindowLimiter:
 @router.post(
     "/chat",
     response_model=ChatResponse,
+    response_model_exclude_none=True,  # `sources` is optional: absent unless SIMBAD facts were used
     summary="AI assistant that explains what the user sees (answers in English)",
     description="Groq first, DeepSeek as backup (8 s each). If both fail, there are no keys or "
     "the daily cap is reached, a canned answer comes back with `fallback: true`: this endpoint "

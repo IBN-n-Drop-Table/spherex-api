@@ -260,3 +260,16 @@ def test_catalog_objects_in_english_for_every_challenge_object(client, key, mode
     finally:
         app.dependency_overrides.pop(get_simbad_service, None)
         app.dependency_overrides.pop(get_simbad_limiter, None)
+
+
+@pytest.mark.parametrize("target", [None, *CATALOG])
+def test_chat_with_simbad_facts_is_in_english(client, target):
+    """The 'what is near' answer, `sources` and the SIMBAD block sent to the model are all English."""
+    context = {"target": target} if target else {}
+    body = client.post("/api/v1/chat", json={"message": "What else is near this object?",
+                                             "context": context}).json()
+    assert_english(body, f"nearby {target}")
+    if target:
+        assert body["sources"] == ["SIMBAD"]
+        from app.core.simbad_facts import build_catalog_facts
+        assert_english(build_catalog_facts(target).block, f"simbad block {target}")
